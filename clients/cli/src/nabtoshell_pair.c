@@ -81,15 +81,18 @@ int nabtoshell_cmd_pair(int argc, char** argv)
     }
 
     /* Set connection options */
-    char optionsJson[1024];
-    snprintf(optionsJson, sizeof(optionsJson),
-             "{\"ProductId\":\"%s\",\"DeviceId\":\"%s\","
-             "\"PrivateKey\":%s,"
-             "\"ServerConnectToken\":\"%s\"}",
-             info.productId, info.deviceId, privateKey, info.sct);
+    char* optionsJson = nabtoshell_build_connection_options(
+        info.productId, info.deviceId, privateKey, info.sct);
     free(privateKey);
+    if (optionsJson == NULL) {
+        nabto_client_connection_free(conn);
+        nabto_client_free(client);
+        nabtoshell_config_deinit(&config);
+        return 1;
+    }
 
     NabtoClientError ec = nabto_client_connection_set_options(conn, optionsJson);
+    free(optionsJson);
     if (ec != NABTO_CLIENT_EC_OK) {
         printf("Failed to set connection options: %s\n",
                nabto_client_error_get_message(ec));

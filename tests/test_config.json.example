@@ -3,6 +3,6 @@
     "device_id": "de-xxxxxxxx",
     "agent_binary": "/absolute/path/to/nabtoshell-agent",
     "cli_binary": "/absolute/path/to/nabtoshell",
-    "agent_home_dir": "/tmp/nabtoshell-test-agent",
-    "client_home_dir": "/tmp/nabtoshell-test-client"
+    "agent_home_dir": "/absolute/path/to/.test/agent_home",
+    "client_home_dir": "/absolute/path/to/.test/client_home"
 }

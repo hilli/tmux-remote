@@ -1,9 +1,13 @@
-"""Test user management (--add-user, --remove-user)."""
+"""Test user management (--add-user, --remove-user).
 
-import os
+These tests exercise agent CLI flags only (no network needed).
+"""
+
 import pytest
-from helpers import (init_agent, add_user, remove_user, parse_pairing_string,
-                     start_agent, stop_agent, run_cli)
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from helpers import init_agent, add_user, remove_user, parse_pairing_string
 
 
 def test_add_user_success(agent_binary, agent_home, product_id, device_id):
@@ -60,28 +64,3 @@ def test_remove_nonexistent_user(agent_binary, agent_home, product_id,
     output = rm_result.stdout.decode("utf-8", errors="replace")
 
     assert rm_result.returncode != 0 or "not found" in output.lower()
-
-
-def test_add_user_and_pair(agent_binary, cli_binary, agent_home, client_home,
-                            product_id, device_id):
-    """Adding a user and pairing with their string should work."""
-    result = init_agent(agent_binary, agent_home, product_id, device_id)
-    assert result.returncode == 0
-
-    add_result = add_user(agent_binary, agent_home, "tablet")
-    output = add_result.stdout.decode("utf-8", errors="replace")
-    assert add_result.returncode == 0
-
-    pairing_str = parse_pairing_string(output)
-    assert pairing_str is not None
-
-    proc = start_agent(agent_binary, agent_home)
-
-    try:
-        env = {"NABTOSHELL_HOME": client_home}
-        pair_result = run_cli(cli_binary, ["pair", pairing_str],
-                              env_override=env)
-        pair_output = pair_result.stdout.decode("utf-8", errors="replace")
-        assert pair_result.returncode == 0, f"Pair failed: {pair_output}"
-    finally:
-        stop_agent(proc)

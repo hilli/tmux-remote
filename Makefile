@@ -1,14 +1,17 @@
 .PHONY: all agent client clean clean-agent clean-client \
        configure configure-agent configure-client \
-       init-test-server run-test-server run-test-client-suite \
+       init-test-server run-test-server setup-test-client \
+       run-tests-offline run-tests-online run-test-client-suite \
        test clean-test help
 
+PYTHON        ?= python3
 AGENT_BUILD   = agent/_build
 CLIENT_BUILD  = clients/cli/_build
 AGENT_BIN     = $(AGENT_BUILD)/nabtoshell-agent
 CLIENT_BIN    = $(CLIENT_BUILD)/nabtoshell
 TEST_DIR      = .test
 TEST_AGENT_HOME = $(TEST_DIR)/agent_home
+TEST_CLIENT_HOME = $(TEST_DIR)/client_home
 TEST_ENV      = $(TEST_DIR)/env
 
 # ── Build ──────────────────────────────────────────────────────────
@@ -62,10 +65,16 @@ endif
 		echo "Run 'make clean-test' first to reinitialize."; \
 		exit 1; \
 	fi
-	$(AGENT_BIN) --home-dir $(TEST_AGENT_HOME) --init \
-		--product-id $(PRODUCT_ID) --device-id $(DEVICE_ID)
+	@$(AGENT_BIN) --home-dir $(TEST_AGENT_HOME) --init \
+		--product-id $(PRODUCT_ID) --device-id $(DEVICE_ID) \
+		| tee $(TEST_DIR)/init_output.txt
 	@echo "PRODUCT_ID=$(PRODUCT_ID)" > $(TEST_ENV)
 	@echo "DEVICE_ID=$(DEVICE_ID)" >> $(TEST_ENV)
+	@PAIR=$$(grep -oE 'p=[^ ]+' $(TEST_DIR)/init_output.txt | head -1) && \
+		if [ -n "$$PAIR" ]; then \
+			echo "PAIRING_STRING=$$PAIR" >> $(TEST_ENV); \
+		fi
+	@rm -f $(TEST_DIR)/init_output.txt
 	@echo ""
 	@echo "Register the fingerprint above in the Nabto Cloud Console,"
 	@echo "then run:  make run-test-server"
@@ -78,7 +87,63 @@ run-test-server: $(AGENT_BIN)
 	fi
 	$(AGENT_BIN) --home-dir $(TEST_AGENT_HOME) --log-level info --random-ports
 
-# ── Test Client Suite ──────────────────────────────────────────────
+# ── Test Client Setup ─────────────────────────────────────────────
+
+setup-test-client: $(CLIENT_BIN)
+	@if [ ! -f "$(TEST_ENV)" ]; then \
+		echo "Test server not initialized. Run:"; \
+		echo "  make init-test-server PRODUCT_ID=pr-xxx DEVICE_ID=de-xxx"; \
+		exit 1; \
+	fi
+	@. $(TEST_ENV) && \
+	if [ -z "$$PAIRING_STRING" ]; then \
+		echo "No PAIRING_STRING in $(TEST_ENV)."; \
+		echo "Re-run: make clean-test && make init-test-server ..."; \
+		exit 1; \
+	fi && \
+	CLIENT_ABS=$$(cd clients/cli && pwd)/_build/nabtoshell && \
+	mkdir -p $(TEST_CLIENT_HOME) && \
+	echo "Pairing client with test server..." && \
+	NABTOSHELL_HOME=$(TEST_CLIENT_HOME) $$CLIENT_ABS pair $$PAIRING_STRING --name default && \
+	echo "" && \
+	echo "Client paired successfully. State saved to $(TEST_CLIENT_HOME)/" && \
+	echo "Run:  make run-tests-online"
+
+# ── Test Suites ───────────────────────────────────────────────────
+
+define generate_test_config
+	@. $(TEST_ENV) && \
+	AGENT_ABS=$$(cd agent && pwd)/_build/nabtoshell-agent && \
+	CLIENT_ABS=$$(cd clients/cli && pwd)/_build/nabtoshell && \
+	HOME_ABS=$$(pwd)/$(TEST_AGENT_HOME) && \
+	CLIENT_HOME_ABS=$$(pwd)/$(TEST_CLIENT_HOME) && \
+	printf '{\n  "product_id": "%s",\n  "device_id": "%s",\n  "agent_binary": "%s",\n  "cli_binary": "%s",\n  "agent_home_dir": "%s",\n  "client_home_dir": "%s"\n}\n' \
+		"$$PRODUCT_ID" "$$DEVICE_ID" "$$AGENT_ABS" "$$CLIENT_ABS" "$$HOME_ABS" "$$CLIENT_HOME_ABS" \
+		> tests/test_config.json
+endef
+
+run-tests-offline: $(AGENT_BIN) $(CLIENT_BIN)
+	@if [ ! -f "$(TEST_ENV)" ]; then \
+		echo "Test server not initialized. Run:"; \
+		echo "  make init-test-server PRODUCT_ID=pr-xxx DEVICE_ID=de-xxx"; \
+		exit 1; \
+	fi
+	$(generate_test_config)
+	$(PYTHON) -m pytest tests/offline/ -v
+
+run-tests-online: $(AGENT_BIN) $(CLIENT_BIN)
+	@if [ ! -f "$(TEST_ENV)" ]; then \
+		echo "Test server not initialized. Run:"; \
+		echo "  make init-test-server PRODUCT_ID=pr-xxx DEVICE_ID=de-xxx"; \
+		exit 1; \
+	fi
+	@if [ ! -d "$(TEST_CLIENT_HOME)" ]; then \
+		echo "Test client not set up. Run (with test server running):"; \
+		echo "  make setup-test-client"; \
+		exit 1; \
+	fi
+	$(generate_test_config)
+	$(PYTHON) -m pytest tests/online/ -v
 
 run-test-client-suite: $(AGENT_BIN) $(CLIENT_BIN)
 	@if [ ! -f "$(TEST_ENV)" ]; then \
@@ -86,14 +151,18 @@ run-test-client-suite: $(AGENT_BIN) $(CLIENT_BIN)
 		echo "  make init-test-server PRODUCT_ID=pr-xxx DEVICE_ID=de-xxx"; \
 		exit 1; \
 	fi
-	@. $(TEST_ENV) && \
-	AGENT_ABS=$$(cd agent && pwd)/_build/nabtoshell-agent && \
-	CLIENT_ABS=$$(cd clients/cli && pwd)/_build/nabtoshell && \
-	HOME_ABS=$$(pwd)/$(TEST_AGENT_HOME) && \
-	printf '{\n  "product_id": "%s",\n  "device_id": "%s",\n  "agent_binary": "%s",\n  "cli_binary": "%s",\n  "agent_home_dir": "%s",\n  "client_home_dir": "/tmp/nabtoshell-test-client"\n}\n' \
-		"$$PRODUCT_ID" "$$DEVICE_ID" "$$AGENT_ABS" "$$CLIENT_ABS" "$$HOME_ABS" \
-		> tests/test_config.json
-	python3 -m pytest tests/ -v
+	$(generate_test_config)
+	@echo "=== Offline tests (no server needed) ==="
+	$(PYTHON) -m pytest tests/offline/ -v
+	@if [ -d "$(TEST_CLIENT_HOME)" ]; then \
+		echo ""; \
+		echo "=== Online tests (against running server) ==="; \
+		$(PYTHON) -m pytest tests/online/ -v; \
+	else \
+		echo ""; \
+		echo "Skipping online tests: no pre-paired client."; \
+		echo "To run online tests, start the server and run: make setup-test-client"; \
+	fi
 
 # ── Help ───────────────────────────────────────────────────────────
 
@@ -105,7 +174,11 @@ test:
 	@echo ""
 	@echo "  2. make run-test-server          (Terminal 1, runs in foreground)"
 	@echo ""
-	@echo "  3. make run-test-client-suite    (Terminal 2)"
+	@echo "  3. make setup-test-client        (Terminal 2, pairs client once)"
+	@echo ""
+	@echo "  4. make run-tests-offline        (no server needed)"
+	@echo "     make run-tests-online         (requires running server)"
+	@echo "     make run-test-client-suite    (runs both sequentially)"
 	@echo ""
 	@echo "  Cleanup: make clean-test"
 
@@ -128,4 +201,7 @@ help:
 	@echo "  make test                     Show test workflow instructions"
 	@echo "  make init-test-server         Initialize test server (needs PRODUCT_ID, DEVICE_ID)"
 	@echo "  make run-test-server          Start test server in foreground"
-	@echo "  make run-test-client-suite    Run pytest suite against running server"
+	@echo "  make setup-test-client        Pair client with running test server (once)"
+	@echo "  make run-tests-offline        Run offline tests (no server needed)"
+	@echo "  make run-tests-online         Run online tests (needs server + paired client)"
+	@echo "  make run-test-client-suite    Run both test suites sequentially"

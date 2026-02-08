@@ -73,6 +73,49 @@ bool nabtoshell_parse_pairing_string(const char* str,
     return true;
 }
 
+char* nabtoshell_build_connection_options(const char* productId,
+                                          const char* deviceId,
+                                          const char* privateKey,
+                                          const char* sct)
+{
+    /* JSON-escape the private key (PEM contains newlines) */
+    size_t keyLen = strlen(privateKey);
+    char* escaped = (char*)malloc(keyLen * 2 + 3);
+    if (escaped == NULL) {
+        return NULL;
+    }
+
+    char* dst = escaped;
+    *dst++ = '"';
+    for (size_t i = 0; i < keyLen; i++) {
+        switch (privateKey[i]) {
+        case '\n': *dst++ = '\\'; *dst++ = 'n'; break;
+        case '\r': *dst++ = '\\'; *dst++ = 'r'; break;
+        case '"':  *dst++ = '\\'; *dst++ = '"'; break;
+        case '\\': *dst++ = '\\'; *dst++ = '\\'; break;
+        default:   *dst++ = privateKey[i]; break;
+        }
+    }
+    *dst++ = '"';
+    *dst = '\0';
+
+    size_t totalSize = strlen(escaped) + strlen(productId) + strlen(deviceId)
+                       + strlen(sct) + 128;
+    char* json = (char*)malloc(totalSize);
+    if (json == NULL) {
+        free(escaped);
+        return NULL;
+    }
+
+    snprintf(json, totalSize,
+             "{\"ProductId\":\"%s\",\"DeviceId\":\"%s\","
+             "\"PrivateKey\":%s,"
+             "\"ServerConnectToken\":\"%s\"}",
+             productId, deviceId, escaped, sct);
+    free(escaped);
+    return json;
+}
+
 bool nabtoshell_terminal_get_size(uint16_t* cols, uint16_t* rows)
 {
     struct winsize ws;

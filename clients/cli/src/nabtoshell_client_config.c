@@ -16,20 +16,25 @@ bool nabtoshell_config_init(struct nabtoshell_client_config* config)
 {
     memset(config, 0, sizeof(struct nabtoshell_client_config));
 
-    const char* home = getenv("HOME");
-    if (home == NULL) {
-        printf("Cannot determine HOME directory\n");
-        return false;
+    const char* baseDir = getenv("NABTOSHELL_HOME");
+    if (baseDir != NULL && baseDir[0] != '\0') {
+        config->configDir = strdup(baseDir);
+    } else {
+        const char* home = getenv("HOME");
+        if (home == NULL) {
+            printf("Cannot determine HOME directory\n");
+            return false;
+        }
+        char buffer[512];
+        snprintf(buffer, sizeof(buffer), "%s/.nabtoshell-client", home);
+        config->configDir = strdup(buffer);
     }
 
     char buffer[512];
-    snprintf(buffer, sizeof(buffer), "%s/.nabtoshell-client", home);
-    config->configDir = strdup(buffer);
-
-    snprintf(buffer, sizeof(buffer), "%s/.nabtoshell-client/client.key", home);
+    snprintf(buffer, sizeof(buffer), "%s/client.key", config->configDir);
     config->keyFile = strdup(buffer);
 
-    snprintf(buffer, sizeof(buffer), "%s/.nabtoshell-client/devices.json", home);
+    snprintf(buffer, sizeof(buffer), "%s/devices.json", config->configDir);
     config->devicesFile = strdup(buffer);
 
     return true;

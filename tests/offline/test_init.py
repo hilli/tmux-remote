@@ -1,7 +1,12 @@
-"""Test agent initialization (--init, file creation)."""
+"""Test agent initialization (--init, file creation).
+
+These tests exercise agent CLI flags only (no network needed).
+"""
 
 import os
 import pytest
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from helpers import init_agent, parse_pairing_string
 
 
@@ -12,7 +17,6 @@ def test_init_creates_files(agent_binary, agent_home, product_id, device_id):
 
     assert result.returncode == 0, f"Init failed: {output}"
 
-    # Check expected files exist
     assert os.path.exists(os.path.join(agent_home, "config", "device.json"))
     assert os.path.exists(os.path.join(agent_home, "keys", "device.key"))
     assert os.path.exists(os.path.join(agent_home, "state", "iam_state.json"))

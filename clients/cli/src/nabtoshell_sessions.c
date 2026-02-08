@@ -2,6 +2,7 @@
 #include "nabtoshell_client.h"
 #include "nabtoshell_client_config.h"
 #include "nabtoshell_client_coap.h"
+#include "nabtoshell_client_util.h"
 
 #include <nabto/nabto_client.h>
 
@@ -49,15 +50,26 @@ int nabtoshell_cmd_sessions(int argc, char** argv)
 
     NabtoClientConnection* conn = nabto_client_connection_new(client);
 
-    char optionsJson[1024];
-    snprintf(optionsJson, sizeof(optionsJson),
-             "{\"ProductId\":\"%s\",\"DeviceId\":\"%s\","
-             "\"PrivateKey\":%s,"
-             "\"ServerConnectToken\":\"%s\"}",
-             dev->productId, dev->deviceId, privateKey, dev->sct);
+    char* optionsJson = nabtoshell_build_connection_options(
+        dev->productId, dev->deviceId, privateKey, dev->sct);
     free(privateKey);
+    if (optionsJson == NULL) {
+        nabto_client_connection_free(conn);
+        nabto_client_free(client);
+        nabtoshell_config_deinit(&config);
+        return 1;
+    }
 
-    nabto_client_connection_set_options(conn, optionsJson);
+    NabtoClientError ec2 = nabto_client_connection_set_options(conn, optionsJson);
+    free(optionsJson);
+    if (ec2 != NABTO_CLIENT_EC_OK) {
+        printf("Failed to set connection options: %s\n",
+               nabto_client_error_get_message(ec2));
+        nabto_client_connection_free(conn);
+        nabto_client_free(client);
+        nabtoshell_config_deinit(&config);
+        return 1;
+    }
 
     NabtoClientFuture* future = nabto_client_future_new(client);
     nabto_client_connection_connect(conn, future);
