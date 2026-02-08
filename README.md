@@ -1,28 +1,38 @@
 # NabtoShell
 
-Secure remote terminal access over Nabto Edge P2P connectivity. Exposes tmux sessions to authenticated clients without SSH, port forwarding, or firewall configuration.
+Secure remote terminal access over Nabto Edge P2P connectivity. Exposes tmux sessions on a machine to authenticated clients without SSH, port forwarding, or firewall configuration.
+
+All traffic is end-to-end encrypted (DTLS with ECC). No ports are opened on the agent machine; connectivity is established through the Nabto basestation which mediates P2P connection setup but never sees your data.
 
 ## Prerequisites
 
 - CMake 3.14+, Ninja (or Make)
 - tmux installed on the agent machine
-- Python 3 for integration tests
+- A device identity from the [Nabto Cloud Console](https://console.cloud.nabto.com/) (Product ID + Device ID)
+- Python 3 and pytest for integration tests
 
-## Building the Agent
+## Building
+
+### Quick build (both components)
+
+```bash
+make
+```
+
+### Agent only
 
 The Nabto Embedded SDK is fetched automatically via CMake FetchContent.
 
 ```bash
-cd agent
-cmake -B _build -G Ninja
-cmake --build _build
+make agent
+# Binary: agent/_build/nabtoshell-agent
 ```
 
-## Building the CLI Client
+### CLI client
 
-The CLI client requires the Nabto Client SDK binary. You must download it before building.
+The CLI client requires the Nabto Client SDK binary. Download it before building.
 
-### 1. Download the Nabto Client SDK
+**1. Download the Nabto Client SDK**
 
 Download release v5.12.0 from https://github.com/nabto/nabto-client-sdk-releases/releases/tag/v5.12.0
 
@@ -42,22 +52,266 @@ cp <extracted>/lib/linux-x86_64/libnabto_client.so \
 
 The SDK headers are already checked in at `clients/cli/nabto_client_sdk_library/include/`.
 
-### 2. Build
+**2. Build**
 
 ```bash
-cd clients/cli
-cmake -B _build -G Ninja
-cmake --build _build
+make client
+# Binary: clients/cli/_build/nabtoshell
 ```
+
+## Usage
+
+### Overview
+
+NabtoShell has two components:
+
+- **Agent** (`nabtoshell-agent`): runs on the machine you want to access remotely. Serves tmux sessions over Nabto.
+- **CLI client** (`nabtoshell`): runs on the machine you are working from. Connects to a remote agent and opens an interactive terminal.
+
+The typical workflow is: initialize the agent, pair a client, then connect.
+
+### Step 1: Initialize the agent
+
+On the machine you want to access remotely, create a device identity in the [Nabto Cloud Console](https://console.cloud.nabto.com/) and initialize the agent:
+
+```bash
+nabtoshell-agent --init -p pr-xxxxxxxx -d de-yyyyyyyy
+```
+
+This creates the configuration in `~/.nabtoshell/` and prints:
+
+```
+Device fingerprint: a1b2c3d4e5f6...
+
+Pairing string for the first client:
+p=pr-xxxxxxxx,d=de-yyyyyyyy,u=owner,pwd=CbAHaqpKKrhK,sct=TUfe3n3hhhM9
+```
+
+Copy the device fingerprint and register it in the Nabto Cloud Console for your device.
+
+The pairing string is a one-time credential. After a client uses it, it is invalidated.
+
+### Step 2: Start the agent
+
+```bash
+nabtoshell-agent
+```
+
+The agent attaches to the Nabto basestation and waits for connections. It prints a banner showing paired users and available tmux sessions.
+
+Make sure at least one tmux session exists (the agent relays existing tmux sessions; it does not create them on its own):
+
+```bash
+tmux new-session -d -s main
+```
+
+### Step 3: Pair the client
+
+On the machine you will connect from, run the pair command with the pairing string from Step 1:
+
+```bash
+nabtoshell pair p=pr-xxxxxxxx,d=de-yyyyyyyy,u=owner,pwd=CbAHaqpKKrhK,sct=TUfe3n3hhhM9 \
+  --name my-server
+```
+
+This exchanges public keys with the agent and saves a device bookmark. The `--name` flag sets a friendly name used in subsequent commands. If omitted, the device ID is used.
+
+Pairing is a one-time operation. All future connections authenticate with the exchanged keys.
+
+### Step 4: Connect
+
+```bash
+nabtoshell connect my-server
+```
+
+This opens an interactive terminal attached to the default tmux session on the remote machine. The session behaves like SSH: keystrokes are sent to the remote PTY, and output is displayed locally. Terminal resize events are forwarded automatically.
+
+Press `Ctrl-C` or type `exit` to disconnect.
+
+### Listing sessions
+
+```bash
+nabtoshell sessions my-server
+```
+
+Output:
+
+```
+Sessions on 'my-server':
+  NAME             SIZE         STATUS
+  main             200x50       (attached)
+  dev              120x40
+  background       80x24
+```
+
+### Connecting to a specific session
+
+```bash
+nabtoshell connect my-server -s dev
+```
+
+### Creating a new session
+
+```bash
+nabtoshell connect my-server --new bash -s my-session
+```
+
+This creates a tmux session named `my-session` running `bash` on the remote machine, then attaches to it. If `-s` is omitted, a name is generated automatically.
+
+### Listing paired devices
+
+```bash
+nabtoshell devices
+```
+
+Shows all saved device bookmarks with their names, product IDs, and device IDs.
+
+### Client home directory
+
+Client state (private key and device bookmarks) is stored in `~/.nabtoshell-client/`. Override this with the `NABTOSHELL_HOME` environment variable:
+
+```bash
+NABTOSHELL_HOME=/tmp/alt-client nabtoshell devices
+```
+
+### Adding more clients
+
+Each pairing invitation is single-use. To pair a second device (phone, laptop, etc.), create a new invitation on the agent machine:
+
+```bash
+nabtoshell-agent --add-user tablet
+```
+
+This prints a new pairing string. Use it to pair the second client:
+
+```bash
+nabtoshell pair <new-pairing-string> --name my-server
+```
+
+### Revoking access
+
+```bash
+nabtoshell-agent --remove-user tablet
+```
+
+The revoked client can no longer connect.
+
+## Multiple Sessions and Clients
+
+A single agent (one device ID) supports up to 8 concurrent connections. Multiple clients can connect simultaneously, each to a different tmux session or to the same one.
+
+### How it works
+
+When a client connects, it tells the agent which tmux session to attach to (via a CoAP control message). The agent then opens a PTY running `tmux attach-session -t <name>` and relays it over a Nabto stream. Each connection gets its own independent PTY, reader thread, and stream.
+
+```
+Agent (one device ID)
+  |
+  +-- Client A connects, attaches to "main"
+  |     PTY 1 -> tmux attach-session -t main
+  |
+  +-- Client B connects, attaches to "dev"
+  |     PTY 2 -> tmux attach-session -t dev
+  |
+  +-- Client C connects, attaches to "main"
+        PTY 3 -> tmux attach-session -t main
+        (tmux handles the multi-attach natively)
+```
+
+- **Different sessions**: Alice attaches to "main", Bob attaches to "dev". Each gets an independent terminal.
+- **Same session**: Alice and Bob both attach to "main". tmux multiplexes them: both see the same output and either can type. This is standard tmux shared-session behavior.
+- **Terminal resize**: Each client's resize events only affect its own PTY. If Alice resizes her terminal, Bob's is unaffected.
+
+No extra device IDs, agent instances, or configuration are needed for multiple sessions or clients.
+
+## Agent Reference
+
+```
+nabtoshell-agent [options]
+
+Options:
+  -h, --help                Show help
+  -v, --version             Show version
+  -H, --home-dir <dir>      Home directory (default: ~/.nabtoshell/)
+      --log-level <level>   Log level: error, info, trace, debug (default: error)
+      --random-ports        Use random ports instead of defaults
+      --init                Initialize configuration
+      --demo-init           Initialize with open pairing (for demos; prints warning)
+      --add-user <name>     Create a one-time pairing invitation
+      --remove-user <name>  Revoke a user's access
+  -p, --product-id <id>     Product ID (used with --init)
+  -d, --device-id <id>      Device ID (used with --init)
+```
+
+## CLI Client Reference
+
+```
+nabtoshell <command> [options]
+
+Commands:
+  pair <pairing-string>     One-time pairing with a device
+    --name <name>           Friendly name for the device bookmark
+
+  connect <device>          Connect to a device
+    -s <session>            Attach to a specific tmux session (default: "main")
+    --new [command]         Create a new tmux session (optionally with a command)
+
+  sessions <device>         List tmux sessions on a device
+
+  devices                   List saved device bookmarks
+
+  --help, -h                Show help
+  --version, -v             Show version
+```
+
+## Security Model
+
+NabtoShell grants remote shell access. The security model reflects this: a compromise means arbitrary command execution.
+
+- **Single role**: Owner. Full access or no access. There are no "limited" or "read-only" roles.
+- **Password-invite pairing only**: Each pairing invitation is single-use. After a client pairs, the password is invalidated and pairing is closed. No open pairing modes in normal operation.
+- **Key-based authentication**: After the initial pairing, all connections authenticate with exchanged public keys. No passwords are stored or transmitted.
+- **End-to-end encryption**: All traffic uses DTLS with ECC. The Nabto basestation never sees plaintext.
+- **IAM enforcement**: Every CoAP endpoint and stream handler calls `nm_iam_check_access()` before processing. Unpaired clients can only reach the pairing endpoint.
+- **No open ports**: The agent makes outbound connections to the Nabto basestation. No listening sockets are opened on the agent machine.
 
 ## Running Tests
 
+Integration tests require a running agent with real Nabto Cloud credentials.
+
+### Setup
+
 ```bash
-cp tests/test_config.json.example tests/test_config.json
-# Edit test_config.json with your Nabto Cloud Console device credentials
-python3 -m pytest tests/ -v
+# Initialize test server
+make init-test-server PRODUCT_ID=pr-xxx DEVICE_ID=de-xxx
+# Register the printed fingerprint in the Nabto Cloud Console
+
+# Terminal 1: start the agent
+make run-test-server
+
+# Terminal 2: pair the test client (one-time)
+make setup-test-client
+```
+
+### Run tests
+
+```bash
+# Offline tests (agent CLI flags, no server needed)
+make run-tests-offline
+
+# Online tests (requires running server + paired client)
+make run-tests-online
+
+# Both suites sequentially
+make run-test-client-suite
+```
+
+If your `python3` does not have pytest, specify the path:
+
+```bash
+make run-tests-online PYTHON=.venv/bin/python3
 ```
 
 ## Architecture
 
-See SPEC.md for full product specification and CLAUDE.md for development instructions.
+See SPEC.md for the full product specification and CLAUDE.md for development instructions.
