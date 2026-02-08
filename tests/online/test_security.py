@@ -9,10 +9,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from helpers import run_cli
 
 
-def test_connect_without_pairing(cli_binary, client_home):
-    """Connecting without pairing should fail (device not in bookmarks)."""
+def test_attach_without_pairing(cli_binary, client_home):
+    """Attaching without pairing should fail (device not in bookmarks)."""
     env = {"NABTOSHELL_HOME": client_home}
-    result = run_cli(cli_binary, ["connect", "nonexistent"],
+    result = run_cli(cli_binary, ["attach", "nonexistent"],
                      env_override=env, timeout=10)
     assert result.returncode != 0
 

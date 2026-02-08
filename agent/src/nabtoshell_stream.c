@@ -215,9 +215,6 @@ static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
         /* Child process: exec tmux attach */
         execlp("tmux", "tmux", "attach-session", "-t", entry->sessionName,
                (char*)NULL);
-        /* If exec fails, try new-session as fallback */
-        execlp("tmux", "tmux", "new-session", "-s", entry->sessionName,
-               (char*)NULL);
         _exit(1);
     }
 

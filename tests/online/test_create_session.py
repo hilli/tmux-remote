@@ -15,7 +15,7 @@ def test_create_session_invalid_name(paired_env, cli_binary):
     env = paired_env
     result = run_cli(
         cli_binary,
-        ["connect", "default", "-s", "bad;name", "--new", "bash"],
+        ["new-session", "default", "bad;name"],
         env_override=env,
         timeout=10,
     )

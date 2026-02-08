@@ -68,7 +68,7 @@ NabtoShell has two components:
 - **Agent** (`nabtoshell-agent`): runs on the machine you want to access remotely. Serves tmux sessions over Nabto.
 - **CLI client** (`nabtoshell`): runs on the machine you are working from. Connects to a remote agent and opens an interactive terminal.
 
-The typical workflow is: initialize the agent, pair a client, then connect.
+The typical workflow is: initialize the agent, pair a client, then attach to a session.
 
 ### Step 1: Initialize the agent
 
@@ -118,13 +118,13 @@ This exchanges public keys with the agent and saves a device bookmark. The `--na
 
 Pairing is a one-time operation. All future connections authenticate with the exchanged keys.
 
-### Step 4: Connect
+### Step 4: Attach to a session
 
 ```bash
-nabtoshell connect my-server
+nabtoshell attach my-server
 ```
 
-This opens an interactive terminal attached to the default tmux session on the remote machine. The session behaves like SSH: keystrokes are sent to the remote PTY, and output is displayed locally. Terminal resize events are forwarded automatically.
+This opens an interactive terminal attached to the default tmux session ("main") on the remote machine. The session behaves like SSH: keystrokes are sent to the remote PTY, and output is displayed locally. Terminal resize events are forwarded automatically.
 
 Press `Ctrl-C` or type `exit` to disconnect.
 
@@ -144,19 +144,29 @@ Sessions on 'my-server':
   background       80x24
 ```
 
-### Connecting to a specific session
+### Attaching to a specific session
 
 ```bash
-nabtoshell connect my-server -s dev
+nabtoshell attach my-server dev
 ```
+
+If the session does not exist, the command fails with an error.
 
 ### Creating a new session
 
 ```bash
-nabtoshell connect my-server --new bash -s my-session
+nabtoshell create my-server work
 ```
 
-This creates a tmux session named `my-session` running `bash` on the remote machine, then attaches to it. If `-s` is omitted, a name is generated automatically.
+This creates a tmux session named "work" on the remote machine and attaches to it. If the session name is omitted, a name is auto-generated.
+
+To run a specific command instead of the default shell:
+
+```bash
+nabtoshell create my-server claude --command "claude --resume"
+```
+
+Short aliases: `nabtoshell n`, `nabtoshell new`, `nabtoshell c`.
 
 ### Listing paired devices
 
@@ -249,19 +259,23 @@ Options:
 nabtoshell <command> [options]
 
 Commands:
-  pair <pairing-string>     One-time pairing with a device
-    --name <name>           Friendly name for the device bookmark
+  pair <pairing-string>           One-time pairing with a device
+    --name <name>                 Friendly name for the device bookmark
 
-  connect <device>          Connect to a device
-    -s <session>            Attach to a specific tmux session (default: "main")
-    --new [command]         Create a new tmux session (optionally with a command)
+  attach <device> [session]       Attach to an existing tmux session (alias: a)
+                                  Default session: "main"
 
-  sessions <device>         List tmux sessions on a device
+  create <device> [session]       Create a new session and attach (aliases: new, n, c)
+    --command <cmd>               Run a specific command instead of the default shell
 
-  devices                   List saved device bookmarks
+  sessions <device>               List tmux sessions on a device
 
-  --help, -h                Show help
-  --version, -v             Show version
+  devices                         List saved device bookmarks
+
+  rename <current> <new>          Rename a device bookmark
+
+  --help, -h                      Show help
+  --version, -v                   Show version
 ```
 
 ## Security Model

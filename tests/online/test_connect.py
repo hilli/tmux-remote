@@ -14,14 +14,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from helpers import run_cli
 
 
-def test_connect_interactive(paired_env, cli_binary):
-    """Connect and send a command, verify output appears."""
+def test_attach_interactive(paired_env, cli_binary):
+    """Attach and send a command, verify output appears."""
     env = paired_env
 
     master_fd, slave_fd = pty.openpty()
 
     proc = subprocess.Popen(
-        [cli_binary, "connect", "default"],
+        [cli_binary, "attach", "default"],
         stdin=slave_fd,
         stdout=slave_fd,
         stderr=slave_fd,

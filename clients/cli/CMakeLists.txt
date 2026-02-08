@@ -24,9 +24,10 @@ target_include_directories(tinycbor_lib PUBLIC ${tinycbor_SOURCE_DIR}/src)
 set(src
   src/main.c
   src/nabtoshell_pair.c
-  src/nabtoshell_connect.c
+  src/nabtoshell_attach.c
   src/nabtoshell_sessions.c
   src/nabtoshell_devices.c
+  src/nabtoshell_rename.c
   src/nabtoshell_client_config.c
   src/nabtoshell_client_coap.c
   src/nabtoshell_client_util.c
