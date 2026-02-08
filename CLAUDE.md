@@ -33,7 +33,7 @@ cmake -B _build -G Ninja
 cmake --build _build
 ```
 
-The Nabto Client SDK is vendored in `clients/cli/nabto_client_sdk_library/`. No external downloads needed.
+The Nabto Client SDK is fetched automatically via CMake FetchContent. No external downloads needed.
 
 ### iOS app
 
@@ -89,7 +89,6 @@ clients/
   cli/
     CMakeLists.txt
     src/
-    nabto_client_sdk_library/    # Vendored: headers + platform binaries
 
   ios/
     NabtoShell.xcodeproj/

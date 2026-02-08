@@ -6,5 +6,4 @@ build/
 *.so
 .DS_Store
 tests/test_config.json
-clients/cli/nabto_client_sdk_library/lib/
 .test/

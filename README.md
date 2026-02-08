@@ -30,29 +30,7 @@ make agent
 
 ### CLI client
 
-The CLI client requires the Nabto Client SDK binary. Download it before building.
-
-**1. Download the Nabto Client SDK**
-
-Download release v5.12.0 from https://github.com/nabto/nabto-client-sdk-releases/releases/tag/v5.12.0
-
-Extract the platform libraries into the vendored directory:
-
-```bash
-# macOS (universal binary)
-mkdir -p clients/cli/nabto_client_sdk_library/lib/macos-universal
-cp <extracted>/lib/macos-universal/libnabto_client.dylib \
-   clients/cli/nabto_client_sdk_library/lib/macos-universal/
-
-# Linux x86_64
-mkdir -p clients/cli/nabto_client_sdk_library/lib/linux-x86_64
-cp <extracted>/lib/linux-x86_64/libnabto_client.so \
-   clients/cli/nabto_client_sdk_library/lib/linux-x86_64/
-```
-
-The SDK headers are already checked in at `clients/cli/nabto_client_sdk_library/include/`.
-
-**2. Build**
+The Nabto Client SDK is fetched automatically via CMake FetchContent (downloaded once at configure time).
 
 ```bash
 make client

@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.14)
 project(NabtoShellCLI C)
 
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+if(POLICY CMP0169)
+  cmake_policy(SET CMP0169 OLD)
+endif()
+
 find_package(Threads REQUIRED)
 
 include(FetchContent)
@@ -11,6 +18,12 @@ FetchContent_Declare(
   GIT_TAG        v0.6.0
 )
 FetchContent_Populate(tinycbor)
+
+FetchContent_Declare(
+  nabto_client_sdk
+  URL https://github.com/nabto/nabto-client-sdk-releases/archive/refs/tags/v5.12.0.tar.gz
+)
+FetchContent_MakeAvailable(nabto_client_sdk)
 
 set(TINYCBOR_SRC
   ${tinycbor_SOURCE_DIR}/src/cborencoder.c
@@ -37,14 +50,14 @@ set(src
 add_executable(nabtoshell ${src})
 
 target_include_directories(nabtoshell PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/nabto_client_sdk_library/include
+  ${nabto_client_sdk_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 if(APPLE)
-  set(NABTO_CLIENT_SDK_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nabto_client_sdk_library/lib/macos-universal)
+  set(NABTO_CLIENT_SDK_LIB_DIR ${nabto_client_sdk_SOURCE_DIR}/lib/macos-universal)
 elseif(UNIX)
-  set(NABTO_CLIENT_SDK_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nabto_client_sdk_library/lib/linux-x86_64)
+  set(NABTO_CLIENT_SDK_LIB_DIR ${nabto_client_sdk_SOURCE_DIR}/lib/linux-x86_64)
 endif()
 
 target_link_directories(nabtoshell PRIVATE ${NABTO_CLIENT_SDK_LIB_DIR})

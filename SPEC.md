@@ -703,7 +703,7 @@ nabtoshell/
     cli/                              # C, Nabto Client SDK (binary)
       CMakeLists.txt
       src/
-      nabto_client_sdk_library/       # Vendored binary release
+                                        # Nabto Client SDK fetched via FetchContent
     ios/                              # Swift, NabtoEdgeClientSwift
       NabtoShell.xcodeproj/
       NabtoShell/
@@ -722,11 +722,11 @@ nabtoshell/
 | Component | SDK | Source | Strategy |
 |-----------|-----|--------|----------|
 | Agent | Nabto Embedded SDK | github.com/nabto/nabto-embedded-sdk | CMake `FetchContent`, pinned to tag/commit |
-| CLI client | Nabto Client SDK | github.com/nabto/nabto-client-sdk-releases | Vendored binary in `nabto_client_sdk_library/` |
+| CLI client | Nabto Client SDK | github.com/nabto/nabto-client-sdk-releases | CMake `FetchContent`, URL tarball pinned to tag |
 | iOS app | NabtoEdgeClientSwift | CocoaPods | Pod dependency |
 | Android app | NabtoEdgeClientAndroid | Maven | Deferred |
 
-The Embedded SDK uses `FetchContent` so that `git clone` + `cmake --build` just works with no extra steps. The Client SDK binary is vendored because it is not built from source and is small (shared lib + headers).
+Both the Embedded SDK and Client SDK use `FetchContent` so that `git clone` + `cmake --build` just works with no extra steps. The Client SDK is fetched as a URL tarball from the releases repo (not cloned, to avoid pulling gigabytes of history).
 
 ---
 
