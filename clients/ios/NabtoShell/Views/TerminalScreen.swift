@@ -4,6 +4,7 @@ struct TerminalScreen: View {
     let bookmark: DeviceBookmark
     let sessionName: String
     let nabtoService: NabtoService
+    let connectionManager: ConnectionManager
     let bookmarkStore: BookmarkStore
 
     @State private var bridge = TerminalBridge()
@@ -11,8 +12,12 @@ struct TerminalScreen: View {
     @State private var currentRows: Int = 24
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var isTerminalReady = false
+    @State private var initialConnectionDone = false
+    @State private var isReconnecting = false
+    @State private var isDismissing = false
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.dismiss) private var dismiss
+    let onDismiss: () -> Void
 
     var body: some View {
         ZStack {
@@ -27,29 +32,66 @@ struct TerminalScreen: View {
                     currentCols = cols
                     currentRows = rows
                     Task {
-                        await nabtoService.resize(cols: cols, rows: rows)
+                        await nabtoService.resize(bookmark: bookmark, cols: cols, rows: rows)
                     }
+                },
+                onReady: {
+                    setupCallbacks()
+                    isTerminalReady = true
                 }
             )
             .ignoresSafeArea(.container, edges: .bottom)
-            .onAppear { setupCallbacks() }
+            .accessibilityIdentifier("terminal-view")
 
-            // Connection status pill
             VStack {
                 HStack {
+                    Button {
+                        dismissToDevices()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Devices")
+                        }
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.gray.opacity(0.6))
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                    }
+                    .accessibilityIdentifier("back-to-devices")
+                    .padding(.leading, 12)
+                    .padding(.top, 8)
+
                     Spacer()
+
                     connectionPill
                         .padding(.trailing, 12)
                         .padding(.top, 8)
                 }
                 Spacer()
             }
+
+            if isReconnecting {
+                reconnectOverlay
+                    .accessibilityIdentifier("reconnect-overlay")
+            }
         }
         .navigationBarHidden(true)
-        .task { await connectAndAttach() }
+        .task(id: isTerminalReady) {
+            guard isTerminalReady else { return }
+            await connectAndAttach()
+            initialConnectionDone = true
+        }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
+            if newPhase == .active && initialConnectionDone {
                 handleForegroundReturn()
+            }
+        }
+        .onChange(of: connectionManager.deviceStates[bookmark.deviceId]) { _, newState in
+            if newState == .disconnected && initialConnectionDone && !isReconnecting && !isDismissing {
+                handleStreamClosed()
             }
         }
         .alert("Error", isPresented: $showError) {
@@ -57,7 +99,7 @@ struct TerminalScreen: View {
                 Task { await connectAndAttach() }
             }
             Button("Back", role: .cancel) {
-                dismiss()
+                dismissToDevices()
             }
         } message: {
             Text(errorMessage ?? "Unknown error")
@@ -66,7 +108,8 @@ struct TerminalScreen: View {
 
     @ViewBuilder
     private var connectionPill: some View {
-        let (text, color) = pillContent
+        let state = connectionManager.deviceStates[bookmark.deviceId] ?? .disconnected
+        let (text, color) = pillContent(for: state)
         Text(text)
             .font(.caption2)
             .fontWeight(.medium)
@@ -75,10 +118,11 @@ struct TerminalScreen: View {
             .background(color.opacity(0.85))
             .foregroundColor(.white)
             .clipShape(Capsule())
+            .accessibilityIdentifier("connection-pill")
     }
 
-    private var pillContent: (String, Color) {
-        switch nabtoService.connectionState {
+    private func pillContent(for state: ConnectionState) -> (String, Color) {
+        switch state {
         case .disconnected:
             return ("Disconnected", .gray)
         case .connecting:
@@ -92,22 +136,27 @@ struct TerminalScreen: View {
         }
     }
 
+    private func dismissToDevices() {
+        isDismissing = true
+        nabtoService.disconnect()
+        onDismiss()
+    }
+
     private func setupCallbacks() {
         nabtoService.onStreamData = { [bridge] bytes in
             bridge.feed(bytes: bytes)
         }
-        nabtoService.onStreamClosed = {
+        nabtoService.onStreamClosed = { [self] in
+            guard !isDismissing else { return }
             handleStreamClosed()
         }
     }
 
     private func connectAndAttach() async {
         do {
-            if nabtoService.connectionState != .connected {
-                try await nabtoService.connect(bookmark: bookmark)
-            }
-            try await nabtoService.attach(session: sessionName, cols: currentCols, rows: currentRows)
-            try await nabtoService.openStream()
+            try await nabtoService.connect(bookmark: bookmark)
+            try await nabtoService.attach(bookmark: bookmark, session: sessionName, cols: currentCols, rows: currentRows)
+            try await nabtoService.openStream(bookmark: bookmark)
             bookmarkStore.updateLastSession(deviceId: bookmark.deviceId, session: sessionName)
         } catch let error as NabtoError {
             switch error {
@@ -124,24 +173,73 @@ struct TerminalScreen: View {
         }
     }
 
+    @ViewBuilder
+    private var reconnectOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .scaleEffect(1.5)
+
+                Text("Reconnecting...")
+                    .font(.headline)
+                    .foregroundColor(.white)
+
+                Button {
+                    dismissToDevices()
+                } label: {
+                    Text("Back to Devices")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.gray.opacity(0.6))
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                }
+            }
+        }
+    }
+
     private func handleForegroundReturn() {
-        guard nabtoService.connectionState != .connected || nabtoService.currentSession == nil else {
+        let state = connectionManager.deviceStates[bookmark.deviceId] ?? .disconnected
+        guard state != .connected || nabtoService.currentSession == nil else {
             return
         }
+        isReconnecting = true
         nabtoService.attemptReconnect(
             bookmark: bookmark,
             session: sessionName,
             cols: currentCols,
-            rows: currentRows
+            rows: currentRows,
+            onSuccess: {
+                isReconnecting = false
+            },
+            onGiveUp: {
+                isReconnecting = false
+                dismissToDevices()
+            }
         )
     }
 
     private func handleStreamClosed() {
+        guard !isReconnecting else { return }
+        isReconnecting = true
         nabtoService.attemptReconnect(
             bookmark: bookmark,
             session: sessionName,
             cols: currentCols,
-            rows: currentRows
+            rows: currentRows,
+            onSuccess: {
+                isReconnecting = false
+            },
+            onGiveUp: {
+                isReconnecting = false
+                dismissToDevices()
+            }
         )
     }
 }

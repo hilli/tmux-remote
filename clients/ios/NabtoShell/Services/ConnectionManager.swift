@@ -51,6 +51,7 @@ class ConnectionManager {
                 throw NabtoError.connectionFailed("ConnectionManager deallocated")
             }
 
+            NSLog("[CONN] connection(for: %@) starting on thread %@", deviceId, Thread.current.description)
             self.deviceStates[deviceId] = .connecting
             let privateKey = try self.loadOrCreatePrivateKey()
             let conn = try self.client.createConnection()
@@ -58,7 +59,26 @@ class ConnectionManager {
             try conn.setProductId(id: bookmark.productId)
             try conn.setDeviceId(id: bookmark.deviceId)
             try conn.setServerConnectToken(sct: bookmark.sct)
-            try await conn.connectAsync()
+            NSLog("[CONN] %@ about to connectAsync", deviceId)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    NSLog("[CONN] %@ connectAsync task starting", deviceId)
+                    try await conn.connectAsync()
+                    NSLog("[CONN] %@ connectAsync completed", deviceId)
+                }
+                group.addTask {
+                    NSLog("[CONN] %@ timeout task starting", deviceId)
+                    try await Task.sleep(nanoseconds: 10_000_000_000)
+                    NSLog("[CONN] %@ timeout fired!", deviceId)
+                    throw NabtoError.connectionFailed("Connection timed out")
+                }
+                // Wait for the first to complete; cancel the other
+                NSLog("[CONN] %@ waiting for group.next()", deviceId)
+                try await group.next()
+                NSLog("[CONN] %@ group.next() returned", deviceId)
+                group.cancelAll()
+            }
+            NSLog("[CONN] %@ connect race completed", deviceId)
 
             let receiver = EventReceiver()
             receiver.onClosed = { [weak self] in

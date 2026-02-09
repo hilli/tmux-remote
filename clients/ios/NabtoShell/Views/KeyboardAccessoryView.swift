@@ -1,18 +1,59 @@
 import UIKit
 
+/// Shared Ctrl modifier state between the accessory bar and the terminal coordinator.
+class CtrlModifierState {
+    private(set) var isActive = false
+    private(set) var isLocked = false
+    var onStateChanged: ((Bool) -> Void)?
+
+    func activate() {
+        isActive = true
+        isLocked = false
+        onStateChanged?(true)
+    }
+
+    func lock() {
+        isActive = true
+        isLocked = true
+        onStateChanged?(true)
+    }
+
+    func deactivate() {
+        isActive = false
+        isLocked = false
+        onStateChanged?(false)
+    }
+
+    /// Apply Ctrl modifier to a byte if active. Returns the (possibly modified) data
+    /// and whether the modifier was consumed (single-shot should deactivate).
+    func apply(to data: Data) -> Data {
+        guard isActive, let first = data.first, first >= 0x40, first <= 0x7F else {
+            return data
+        }
+        let modified = Data([first & 0x1F])
+        if !isLocked {
+            deactivate()
+        }
+        return modified
+    }
+}
+
 class KeyboardAccessoryView: UIView {
-    private var ctrlActive = false
-    private var ctrlLocked = false
     private var ctrlButton: UIButton?
     private var lastCtrlTap: Date = .distantPast
     private let onSend: (Data) -> Void
+    let ctrlState: CtrlModifierState
 
-    init(onSend: @escaping (Data) -> Void) {
+    init(ctrlState: CtrlModifierState, onSend: @escaping (Data) -> Void) {
+        self.ctrlState = ctrlState
         self.onSend = onSend
         super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 44))
         autoresizingMask = .flexibleWidth
         backgroundColor = UIColor.systemBackground.withAlphaComponent(0.95)
         setupButtons()
+        ctrlState.onStateChanged = { [weak self] active in
+            self?.updateCtrlAppearance(active: active)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -64,44 +105,19 @@ class KeyboardAccessoryView: UIView {
         ])
     }
 
-    private func sendBytes(_ bytes: [UInt8]) {
-        if ctrlActive && !ctrlLocked {
-            // Ctrl modifier: send byte & 0x1f for the first byte if it's a printable char
-            if let first = bytes.first, first >= 0x40 && first <= 0x7F {
-                onSend(Data([first & 0x1F]))
-            } else {
-                onSend(Data(bytes))
-            }
-            deactivateCtrl()
-        } else if ctrlActive && ctrlLocked {
-            if let first = bytes.first, first >= 0x40 && first <= 0x7F {
-                onSend(Data([first & 0x1F]))
-            } else {
-                onSend(Data(bytes))
-            }
+    private func updateCtrlAppearance(active: Bool) {
+        if active {
+            ctrlButton?.backgroundColor = UIColor.systemBlue
+            ctrlButton?.tintColor = .white
         } else {
-            onSend(Data(bytes))
+            ctrlButton?.backgroundColor = UIColor.secondarySystemBackground
+            ctrlButton?.tintColor = .systemBlue
         }
     }
 
-    private func deactivateCtrl() {
-        ctrlActive = false
-        ctrlLocked = false
-        ctrlButton?.backgroundColor = UIColor.secondarySystemBackground
-        ctrlButton?.tintColor = .systemBlue
-    }
-
-    private func activateCtrl() {
-        ctrlActive = true
-        ctrlButton?.backgroundColor = UIColor.systemBlue
-        ctrlButton?.tintColor = .white
-    }
-
-    private func lockCtrl() {
-        ctrlActive = true
-        ctrlLocked = true
-        ctrlButton?.backgroundColor = UIColor.systemBlue
-        ctrlButton?.tintColor = .white
+    private func sendBytes(_ bytes: [UInt8]) {
+        let data = ctrlState.apply(to: Data(bytes))
+        onSend(data)
     }
 
     // MARK: - Key Actions
@@ -119,15 +135,12 @@ class KeyboardAccessoryView: UIView {
         let elapsed = now.timeIntervalSince(lastCtrlTap)
         lastCtrlTap = now
 
-        if ctrlActive && !ctrlLocked && elapsed < 0.4 {
-            // Double-tap: lock ctrl
-            lockCtrl()
-        } else if ctrlActive {
-            // Already active: deactivate
-            deactivateCtrl()
+        if ctrlState.isActive && !ctrlState.isLocked && elapsed < 0.4 {
+            ctrlState.lock()
+        } else if ctrlState.isActive {
+            ctrlState.deactivate()
         } else {
-            // Activate for one key
-            activateCtrl()
+            ctrlState.activate()
         }
     }
 

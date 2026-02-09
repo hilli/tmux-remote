@@ -19,6 +19,7 @@ struct TerminalViewWrapper: UIViewRepresentable {
     let bridge: TerminalBridge
     let onSend: (Data) -> Void
     let onSizeChanged: (Int, Int) -> Void
+    var onReady: (() -> Void)?
 
     func makeUIView(context: Context) -> TerminalView {
         let tv = TerminalView(frame: .zero)
@@ -27,14 +28,19 @@ struct TerminalViewWrapper: UIViewRepresentable {
         tv.nativeBackgroundColor = .black
         tv.nativeForegroundColor = .white
 
-        // Keyboard accessory bar
-        let accessory = KeyboardAccessoryView { data in
+        // Keyboard accessory bar with shared Ctrl state
+        let ctrlState = context.coordinator.ctrlState
+        let accessory = KeyboardAccessoryView(ctrlState: ctrlState) { data in
             context.coordinator.sendFromAccessory(data)
         }
         tv.inputAccessoryView = accessory
 
         context.coordinator.terminalView = tv
         bridge.coordinator = context.coordinator
+
+        DispatchQueue.main.async {
+            onReady?()
+        }
         return tv
     }
 
@@ -47,6 +53,7 @@ struct TerminalViewWrapper: UIViewRepresentable {
     class Coordinator: NSObject, TerminalViewDelegate {
         let onSend: (Data) -> Void
         let onSizeChanged: (Int, Int) -> Void
+        let ctrlState = CtrlModifierState()
         weak var terminalView: TerminalView?
 
         init(onSend: @escaping (Data) -> Void, onSizeChanged: @escaping (Int, Int) -> Void) {
@@ -69,7 +76,9 @@ struct TerminalViewWrapper: UIViewRepresentable {
         // MARK: - TerminalViewDelegate
 
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
-            onSend(Data(data))
+            let raw = Data(data)
+            let modified = ctrlState.apply(to: raw)
+            onSend(modified)
         }
 
         func scrolled(source: TerminalView, position: Double) {}
