@@ -40,6 +40,19 @@ class AppState {
             _ = KeychainService.savePrivateKey(key)
         }
 
+        // Preserve lastSession only when --preserve-session is passed (resume-path tests)
+        let preserveSession = args.contains("--preserve-session")
+        var preservedSession: String? = nil
+        var preservedLastConnected: Date? = nil
+        var wasLastDevice = false
+
+        if preserveSession {
+            let existingBookmark = bookmarkStore.bookmark(for: config.deviceId)
+            preservedSession = existingBookmark?.lastSession
+            preservedLastConnected = existingBookmark?.lastConnected
+            wasLastDevice = bookmarkStore.lastDeviceId == config.deviceId
+        }
+
         // Clear previous state so tests start from a clean device list
         for device in bookmarkStore.devices {
             bookmarkStore.removeDevice(id: device.deviceId)
@@ -51,9 +64,14 @@ class AppState {
             fingerprint: config.fingerprint,
             sct: config.sct,
             name: config.deviceId,
-            lastSession: nil,
-            lastConnected: nil
+            lastSession: preservedSession,
+            lastConnected: preservedLastConnected
         )
         bookmarkStore.addDevice(bookmark)
+
+        // Restore lastDeviceId if this device was previously the last one
+        if wasLastDevice && preservedSession != nil {
+            bookmarkStore.lastDeviceId = config.deviceId
+        }
     }
 }

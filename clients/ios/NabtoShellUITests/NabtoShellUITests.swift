@@ -265,6 +265,58 @@ final class NabtoShellUITests: XCTestCase {
         }
     }
 
+    /// Tests the exact scenario: resume path -> back to devices -> device shows Online.
+    ///
+    /// This reproduces the bug where the app launches directly into TerminalScreen
+    /// (because lastSession is saved), the user presses "Back to Devices", and the
+    /// device status hangs at "Checking..." instead of resolving to "Online".
+    func testResumeBackShowsDeviceOnline() throws {
+        // Step 1: Launch normally and navigate to terminal to set lastSession
+        app.launch()
+        navigateToTerminal()
+
+        let pill = app.staticTexts["connection-pill"]
+        XCTAssertTrue(pill.exists, "Should be on terminal screen")
+
+        // Step 2: Terminate and relaunch with --preserve-session so the app
+        // resumes directly into TerminalScreen (preserving the saved lastSession)
+        app.terminate()
+        sleep(1)
+        app.launchArguments.append("--preserve-session")
+        app.launch()
+
+        // The app should go straight to terminal (resume path)
+        let resumedPill = app.staticTexts["connection-pill"]
+        XCTAssertTrue(resumedPill.waitForExistence(timeout: 15),
+                       "App should resume directly into terminal screen")
+
+        // Wait for the connection to be established
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            if resumedPill.label == "Connected" { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        XCTAssertEqual(resumedPill.label, "Connected",
+                        "Terminal should show Connected before navigating back")
+
+        // Step 3: Tap "Back to Devices"
+        let backButton = app.buttons["back-to-devices"]
+        XCTAssertTrue(backButton.exists, "Back to Devices button should exist")
+        backButton.tap()
+
+        // Step 4: Device list should appear
+        let deviceRow = app.buttons["device-row-\(deviceId!)"]
+        XCTAssertTrue(deviceRow.waitForExistence(timeout: 15),
+                       "Device list should appear after tapping back")
+
+        // Step 5: Probe should complete and show Online (not hang at Checking...)
+        let status = waitForProbeComplete(timeout: 30)
+        XCTAssertNotEqual(status.label, "Offline",
+                          "Device should be Online after resume-path back navigation")
+        XCTAssertNotEqual(status.label, "Checking...",
+                          "Probe should not hang at Checking...")
+    }
+
     func testKeyboardAccessory() throws {
         app.launch()
         navigateToTerminal()
