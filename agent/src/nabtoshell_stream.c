@@ -68,14 +68,10 @@ void nabtoshell_stream_listener_stop(struct nabtoshell_stream_listener* sl)
         nabto_device_listener_stop(sl->listener);
     }
 
-    /* Close all active streams */
+    /* Mark active streams for shutdown without blocking in this thread. */
     struct nabtoshell_active_stream* as = sl->activeStreams;
     while (as != NULL) {
         atomic_store(&as->closing, true);
-        if (as->ptyFd >= 0) {
-            close(as->ptyFd);
-            as->ptyFd = -1;
-        }
         if (as->childPid > 0) {
             kill(as->childPid, SIGTERM);
         }
