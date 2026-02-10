@@ -62,6 +62,15 @@ class BookmarkStore {
         save()
     }
 
+    func clearLastSession(deviceId: String) {
+        guard let index = devices.firstIndex(where: { $0.deviceId == deviceId }) else { return }
+        devices[index].lastSession = nil
+        if lastDeviceId == deviceId {
+            lastDeviceId = nil
+        }
+        save()
+    }
+
     func bookmark(for deviceId: String) -> DeviceBookmark? {
         devices.first { $0.deviceId == deviceId }
     }

@@ -100,9 +100,9 @@ final class NabtoShellUITests: XCTestCase {
         return status
     }
 
-    /// Navigates from device list to the session list by tapping the device row.
-    /// Waits for the probe to complete first so the device is reachable.
-    private func navigateToSessionList() {
+    /// Expands the device row to reveal inline sessions.
+    /// Waits for probe to complete first so the device is reachable.
+    private func expandDevice() {
         let status = waitForProbeComplete()
         XCTAssertNotEqual(status.label, "Offline", "Device should be online")
 
@@ -111,42 +111,32 @@ final class NabtoShellUITests: XCTestCase {
         deviceRow.tap()
     }
 
-    /// Waits for session list to finish loading (loading indicator disappears).
-    /// Returns true if sessions were found, false if "No sessions" appeared.
+    /// Waits for at least one session row to appear under the expanded device.
+    /// Returns the count of session rows found.
     @discardableResult
-    private func waitForSessionsLoaded(timeout: TimeInterval = 15) -> Bool {
-        let loading = app.activityIndicators["sessions-loading"]
-        if loading.exists {
-            let gone = NSPredicate(format: "exists == false")
-            expectation(for: gone, evaluatedWith: loading)
-            waitForExpectations(timeout: timeout)
+    private func waitForSessionRows(timeout: TimeInterval = 15) -> Int {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let sessionRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-'"))
+            if sessionRows.count > 0 {
+                return sessionRows.count
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
-
-        let empty = app.staticTexts["sessions-empty"]
-        let error = app.staticTexts["sessions-error"]
-        XCTAssertFalse(error.exists, "Session list should not show an error")
-
-        return !empty.exists
+        return 0
     }
 
-    /// Navigates from device list all the way to a terminal session.
-    /// If the agent has exactly one tmux session, auto-attach skips the
-    /// session list and goes straight to the terminal.
+    /// Expands the device and taps the first session row to navigate to terminal.
     private func navigateToTerminal() {
-        navigateToSessionList()
+        expandDevice()
 
-        let pill = app.staticTexts["connection-pill"]
+        let count = waitForSessionRows()
+        XCTAssertTrue(count > 0, "Should find at least one session row")
 
-        // Auto-attach may have already pushed to the terminal
-        if pill.waitForExistence(timeout: 3) {
-            return
-        }
-
-        // Otherwise we are on the session list; tap the first session row
         let sessionRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-'"))
-        XCTAssertTrue(sessionRows.count > 0, "Should find at least one session row")
         sessionRows.element(boundBy: 0).tap()
 
+        let pill = app.staticTexts["connection-pill"]
         XCTAssertTrue(pill.waitForExistence(timeout: 15), "Terminal screen should appear")
     }
 
@@ -162,19 +152,72 @@ final class NabtoShellUITests: XCTestCase {
         XCTAssertNotEqual(status.label, "Offline", "Device should be reachable")
     }
 
-    func testNavigateToSessionList() throws {
+    func testExpandDeviceSessions() throws {
         app.launch()
-        navigateToSessionList()
+        expandDevice()
 
-        // If there is exactly 1 tmux session, auto-attach navigates straight to
-        // the terminal. Accept either session rows, empty state, or terminal view.
-        // The connection-pill is unique to TerminalScreen.
-        let pill = app.staticTexts["connection-pill"]
-        let empty = app.staticTexts["sessions-empty"]
+        // Sessions should appear inline (no screen push)
         let sessionRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-'"))
+        let emptyLabel = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'sessions-empty-'"))
+        let newSessionButton = app.buttons["new-session-\(deviceId!)"]
 
-        let appeared = pill.waitForExistence(timeout: 15) || empty.exists || sessionRows.count > 0
-        XCTAssertTrue(appeared, "Should show sessions, empty state, or auto-attach to terminal")
+        // Wait for content to appear
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            if sessionRows.count > 0 || emptyLabel.count > 0 {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+
+        let hasContent = sessionRows.count > 0 || emptyLabel.count > 0
+        XCTAssertTrue(hasContent, "Should show session rows or empty state inline")
+
+        // "New Session" button should be visible
+        XCTAssertTrue(newSessionButton.exists, "New Session button should appear under expanded device")
+
+        // We should still be on the Devices screen (not pushed to a new view)
+        let navTitle = app.navigationBars["Devices"]
+        XCTAssertTrue(navTitle.exists, "Should still be on Devices screen")
+    }
+
+    func testDeviceRowExpandCollapse() throws {
+        app.launch()
+        let status = waitForProbeComplete()
+        XCTAssertNotEqual(status.label, "Offline", "Device should be online")
+
+        let deviceRow = app.buttons["device-row-\(deviceId!)"]
+
+        // Expand
+        deviceRow.tap()
+        let newSessionButton = app.buttons["new-session-\(deviceId!)"]
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if newSessionButton.exists { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        XCTAssertTrue(newSessionButton.exists, "New Session button should appear when expanded")
+
+        // Collapse
+        deviceRow.tap()
+        // Give animation time to complete
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertFalse(newSessionButton.exists, "New Session button should disappear when collapsed")
+    }
+
+    func testInlineSessionRowNavigatesToTerminal() throws {
+        app.launch()
+        expandDevice()
+
+        let count = waitForSessionRows()
+        XCTAssertTrue(count > 0, "Should find at least one session row")
+
+        let sessionRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-'"))
+        sessionRows.element(boundBy: 0).tap()
+
+        let pill = app.staticTexts["connection-pill"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 15), "Terminal screen should appear")
+        XCTAssertEqual(pill.label, "Connected", "Connection pill should show Connected")
     }
 
     func testNavigateToTerminal() throws {
@@ -221,17 +264,17 @@ final class NabtoShellUITests: XCTestCase {
         let status = waitForProbeComplete(timeout: 15)
         XCTAssertNotEqual(status.label, "Offline")
 
-        // Navigate to device again: should reach terminal or session list (not hang)
+        // Expand device and tap session to reconnect
         deviceRow.tap()
 
-        let pill = app.staticTexts["connection-pill"]
-        let sessionRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-'"))
-        let error = app.staticTexts["sessions-error"]
+        let count = waitForSessionRows()
+        XCTAssertTrue(count > 0, "Should find session rows after re-expanding")
 
-        // Wait for terminal (auto-attach) or session list
-        let reached = pill.waitForExistence(timeout: 15) || sessionRows.count > 0
-        XCTAssertTrue(reached, "Should reach terminal or session list on re-entry")
-        XCTAssertFalse(error.exists, "Should not show error on re-entry")
+        let sessionRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-'"))
+        sessionRows.element(boundBy: 0).tap()
+
+        let pill = app.staticTexts["connection-pill"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 15), "Should reach terminal on re-entry")
     }
 
     func testResumeOnRelaunch() throws {
@@ -245,10 +288,9 @@ final class NabtoShellUITests: XCTestCase {
 
         // On relaunch with lastSession set, the app should go straight to terminal
         let pill = app.staticTexts["connection-pill"]
-        let deviceList = app.navigationBars["Devices"]
+        let deviceRow = app.buttons["device-row-\(deviceId!)"]
 
         // Either terminal resumes or device list appears (if resume fails gracefully)
-        let deviceRow = app.buttons["device-row-\(deviceId!)"]
         let appeared = pill.waitForExistence(timeout: 10) || deviceRow.waitForExistence(timeout: 5)
         XCTAssertTrue(appeared, "App should show terminal or device list on relaunch")
 
@@ -356,6 +398,10 @@ final class NabtoShellUITests: XCTestCase {
         sleep(1)
 
         XCTAssertTrue(pill.exists, "Connection pill should survive portrait rotation")
+    }
+
+    func testNewSessionFromInlineButton() throws {
+        throw XCTSkip("Requires live agent for session creation")
     }
 
     func testSessionGoneFallback() throws {

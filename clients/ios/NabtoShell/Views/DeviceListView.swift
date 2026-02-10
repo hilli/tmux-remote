@@ -1,13 +1,23 @@
 import SwiftUI
 import NabtoEdgeClient
 
+struct TerminalTarget: Hashable, Identifiable {
+    let bookmark: DeviceBookmark
+    let session: String
+    var id: String { "\(bookmark.deviceId)/\(session)" }
+}
+
 struct DeviceListView: View {
     let nabtoService: NabtoService
     let connectionManager: ConnectionManager
     let bookmarkStore: BookmarkStore
     @State private var showPairing = false
     @State private var deviceStatuses: [String: DeviceStatus] = [:]
-    @State private var selectedDevice: DeviceBookmark?
+    @State private var expandedDevices: Set<String> = []
+    @State private var selectedTerminal: TerminalTarget?
+    @State private var showNewSessionAlert = false
+    @State private var newSessionName = ""
+    @State private var newSessionDevice: DeviceBookmark?
 
     enum DeviceStatus {
         case unknown
@@ -37,29 +47,44 @@ struct DeviceListView: View {
         .sheet(isPresented: $showPairing) {
             PairingView(nabtoService: nabtoService, bookmarkStore: bookmarkStore)
         }
-        .navigationDestination(item: $selectedDevice) { device in
-            SessionListView(
-                bookmark: device,
+        .navigationDestination(item: $selectedTerminal) { target in
+            TerminalScreen(
+                bookmark: target.bookmark,
+                sessionName: target.session,
                 nabtoService: nabtoService,
                 connectionManager: connectionManager,
                 bookmarkStore: bookmarkStore,
-                onDismissToDevices: { selectedDevice = nil }
+                onDismiss: { selectedTerminal = nil }
             )
         }
-        .task { await probeAllDevices() }
+        .alert("New Session", isPresented: $showNewSessionAlert) {
+            TextField("Session name", text: $newSessionName)
+            Button("Create") {
+                let name = newSessionName.isEmpty ? "ns-\(Int.random(in: 1000...9999))" : newSessionName
+                if let device = newSessionDevice {
+                    Task { await createAndAttach(device: device, name: name) }
+                }
+                newSessionName = ""
+                newSessionDevice = nil
+            }
+            Button("Cancel", role: .cancel) {
+                newSessionName = ""
+                newSessionDevice = nil
+            }
+        }
+        .task {
+            if let lastId = bookmarkStore.lastDeviceId {
+                expandedDevices.insert(lastId)
+            }
+            await probeAllDevices()
+        }
     }
 
     @ViewBuilder
     private var deviceList: some View {
         List {
             ForEach(bookmarkStore.devices) { device in
-                Button {
-                    selectedDevice = device
-                } label: {
-                    deviceRow(device)
-                }
-                .accessibilityIdentifier("device-row-\(device.deviceId)")
-                .tint(.primary)
+                deviceSection(device)
             }
             .onDelete(perform: deleteDevices)
         }
@@ -67,7 +92,30 @@ struct DeviceListView: View {
     }
 
     @ViewBuilder
-    private func deviceRow(_ device: DeviceBookmark) -> some View {
+    private func deviceSection(_ device: DeviceBookmark) -> some View {
+        let isExpanded = expandedDevices.contains(device.deviceId)
+
+        Button {
+            withAnimation {
+                if isExpanded {
+                    expandedDevices.remove(device.deviceId)
+                } else {
+                    expandedDevices.insert(device.deviceId)
+                }
+            }
+        } label: {
+            deviceRow(device, expanded: isExpanded)
+        }
+        .accessibilityIdentifier("device-row-\(device.deviceId)")
+        .tint(.primary)
+
+        if isExpanded {
+            expandedContent(for: device)
+        }
+    }
+
+    @ViewBuilder
+    private func deviceRow(_ device: DeviceBookmark, expanded: Bool) -> some View {
         HStack {
             Circle()
                 .fill(statusColor(for: device.deviceId))
@@ -99,10 +147,89 @@ struct DeviceListView: View {
 
             Spacer()
 
-            if let lastConnected = device.lastConnected {
-                Text(lastConnected, style: .relative)
-                    .font(.caption2)
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+                .animation(.easeInOut(duration: 0.2), value: expanded)
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func expandedContent(for device: DeviceBookmark) -> some View {
+        switch deviceStatuses[device.deviceId] {
+        case .online(let sessions):
+            if sessions.isEmpty {
+                Text("No tmux sessions")
+                    .font(.caption)
                     .foregroundColor(.secondary)
+                    .padding(.leading, 24)
+                    .accessibilityIdentifier("sessions-empty-\(device.deviceId)")
+            } else {
+                ForEach(sessions) { session in
+                    Button {
+                        selectedTerminal = TerminalTarget(bookmark: device, session: session.name)
+                    } label: {
+                        sessionRow(session)
+                    }
+                    .accessibilityIdentifier("session-row-\(session.name)")
+                    .tint(.primary)
+                    .padding(.leading, 24)
+                }
+            }
+
+            Button {
+                newSessionDevice = device
+                showNewSessionAlert = true
+            } label: {
+                Label("New Session", systemImage: "plus.circle")
+                    .font(.subheadline)
+                    .foregroundColor(.accentColor)
+            }
+            .accessibilityIdentifier("new-session-\(device.deviceId)")
+            .padding(.leading, 24)
+
+        case .offline:
+            Text("Device unreachable")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.leading, 24)
+
+        case .probing, .unknown, .none:
+            HStack {
+                ProgressView()
+                    .scaleEffect(0.8)
+                Text("Loading sessions...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.leading, 24)
+        }
+    }
+
+    @ViewBuilder
+    private func sessionRow(_ session: SessionInfo) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.name)
+                    .font(.body)
+                    .fontWeight(.medium)
+                Text("\(session.cols)x\(session.rows)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if session.attached > 0 {
+                Text("attached")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.blue.opacity(0.15))
+                    .foregroundColor(.blue)
+                    .clipShape(Capsule())
             }
         }
         .padding(.vertical, 4)
@@ -119,6 +246,7 @@ struct DeviceListView: View {
     private func deleteDevices(at offsets: IndexSet) {
         for index in offsets {
             let deviceId = bookmarkStore.devices[index].deviceId
+            expandedDevices.remove(deviceId)
             connectionManager.disconnect(deviceId: deviceId)
             bookmarkStore.removeDevice(id: deviceId)
         }
@@ -127,8 +255,6 @@ struct DeviceListView: View {
     private func probeAllDevices() async {
         for device in bookmarkStore.devices {
             if let lastSession = device.lastSession, !lastSession.isEmpty {
-                // Optimistic UI on resume/back: show the last known session immediately
-                // while the live probe is in flight.
                 deviceStatuses[device.deviceId] = .online([
                     SessionInfo(name: lastSession, cols: 0, rows: 0, attached: 1)
                 ])
@@ -144,6 +270,21 @@ struct DeviceListView: View {
             } catch {
                 deviceStatuses[device.deviceId] = .offline
             }
+        }
+    }
+
+    private func createAndAttach(device: DeviceBookmark, name: String) async {
+        do {
+            try await nabtoService.createSession(bookmark: device, name: name, cols: 80, rows: 24)
+            let sessions = try await connectionManager.probeSessions(for: device)
+            deviceStatuses[device.deviceId] = .online(sessions)
+            selectedTerminal = TerminalTarget(bookmark: device, session: name)
+        } catch {
+            // Refresh to show current state
+            do {
+                let sessions = try await connectionManager.probeSessions(for: device)
+                deviceStatuses[device.deviceId] = .online(sessions)
+            } catch {}
         }
     }
 }

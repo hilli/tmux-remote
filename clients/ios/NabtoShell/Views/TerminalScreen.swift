@@ -202,9 +202,11 @@ struct TerminalScreen: View {
             return
         } catch let error as NabtoError {
             switch error {
-            case .sessionNotFound(let name):
-                errorMessage = "Session '\(name)' no longer exists."
-                showError = true
+            case .sessionNotFound:
+                // Session was destroyed; silently return to device list.
+                bookmarkStore.clearLastSession(deviceId: bookmark.deviceId)
+                dismissToDevices()
+                return
             default:
                 errorMessage = error.localizedDescription
                 showError = true

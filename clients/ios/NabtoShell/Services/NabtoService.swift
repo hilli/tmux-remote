@@ -18,6 +18,11 @@ enum NabtoError: Error, LocalizedError {
     case sessionNotFound(String)
     case alreadyPaired
 
+    var isSessionNotFound: Bool {
+        if case .sessionNotFound = self { return true }
+        return false
+    }
+
     var errorDescription: String? {
         switch self {
         case .connectionFailed(let msg): return "Connection failed: \(msg)"
@@ -347,6 +352,13 @@ class NabtoService {
                     }
                     return
                 } catch is CancellationError {
+                    return
+                } catch let error as NabtoError where error.isSessionNotFound {
+                    // Session was destroyed; retrying will never succeed.
+                    await MainActor.run {
+                        self.connectionManager.setDeviceState(.offline, for: bookmark.deviceId)
+                        onGiveUp?()
+                    }
                     return
                 } catch {
                     if Task.isCancelled || !self.canAutoReconnect(deviceId: bookmark.deviceId, session: session) {
