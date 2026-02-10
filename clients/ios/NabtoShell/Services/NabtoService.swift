@@ -41,6 +41,7 @@ class NabtoService {
     private var stream: NabtoEdgeClient.Stream?
     private var readTask: Task<Void, Never>?
     private(set) var reconnectTask: Task<Void, Never>?
+    private var reconnectContext: (deviceId: String, session: String)?
 
     /// Called on main actor when stream data arrives. Set by TerminalScreen.
     var onStreamData: (([UInt8]) -> Void)?
@@ -68,33 +69,53 @@ class NabtoService {
         _ = try await connectionManager.connection(for: bookmark)
     }
 
-    func disconnect() {
+    /// Disconnect terminal resources for the current device.
+    /// When keepConnection is true, keep the underlying Nabto connection cached.
+    func disconnect(keepConnection: Bool = false) {
+        disableReconnectContext()
         onStreamClosed = nil
         onStreamData = nil
 
         readTask?.cancel()
         readTask = nil
-        reconnectTask?.cancel()
-        reconnectTask = nil
 
-        let streamToClose = stream
+        if let stream = stream {
+            if keepConnection {
+                do {
+                    try stream.close()
+                } catch {
+                    // If graceful close fails, force-close to avoid leaking stream resources.
+                    stream.abort()
+                }
+            } else {
+                stream.abort()
+            }
+        }
         stream = nil
 
         if let deviceId = currentDeviceId {
-            if let s = streamToClose {
-                // Gracefully close the stream before stopping the connection.
-                // The agent needs time to process the stream close and clean up
-                // the PTY; killing the connection mid-stream can deadlock it.
-                Task {
-                    try? await s.closeAsync()
-                    connectionManager.disconnect(deviceId: deviceId)
-                }
-            } else {
+            connectionManager.cancelPendingConnect(deviceId: deviceId)
+            if !keepConnection {
                 connectionManager.disconnect(deviceId: deviceId)
             }
         }
 
         currentSession = nil
+        currentDeviceId = nil
+    }
+
+    func enableReconnectContext(deviceId: String, session: String) {
+        reconnectContext = (deviceId, session)
+    }
+
+    func disableReconnectContext() {
+        reconnectContext = nil
+        cancelReconnect()
+    }
+
+    func canAutoReconnect(deviceId: String, session: String) -> Bool {
+        guard let ctx = reconnectContext else { return false }
+        return ctx.deviceId == deviceId && ctx.session == session
     }
 
     // MARK: - Pairing
@@ -279,6 +300,10 @@ class NabtoService {
 
     func attemptReconnect(bookmark: DeviceBookmark, session: String, cols: Int, rows: Int,
                            onSuccess: (() -> Void)? = nil, onGiveUp: (() -> Void)? = nil) {
+        guard canAutoReconnect(deviceId: bookmark.deviceId, session: session) else {
+            return
+        }
+
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             guard let self = self else { return }
@@ -287,6 +312,9 @@ class NabtoService {
             var attempt = 0
 
             while !Task.isCancelled {
+                guard self.canAutoReconnect(deviceId: bookmark.deviceId, session: session) else {
+                    return
+                }
                 attempt += 1
                 await MainActor.run {
                     self.connectionManager.setDeviceState(.reconnecting(attempt: attempt), for: bookmark.deviceId)
@@ -294,6 +322,9 @@ class NabtoService {
 
                 let elapsed = Date().timeIntervalSince(startTime)
                 if self.reconnectLogic.shouldGiveUp(elapsedTime: elapsed) {
+                    guard self.canAutoReconnect(deviceId: bookmark.deviceId, session: session) else {
+                        return
+                    }
                     await MainActor.run {
                         self.connectionManager.setDeviceState(.offline, for: bookmark.deviceId)
                         onGiveUp?()
@@ -307,11 +338,20 @@ class NabtoService {
                     try await self.attach(bookmark: bookmark, session: session, cols: cols, rows: rows)
                     try await self.openStream(bookmark: bookmark)
                     await self.resize(bookmark: bookmark, cols: cols, rows: rows)
+                    guard self.canAutoReconnect(deviceId: bookmark.deviceId, session: session) else {
+                        self.connectionManager.disconnect(deviceId: bookmark.deviceId)
+                        return
+                    }
                     await MainActor.run {
                         onSuccess?()
                     }
                     return
+                } catch is CancellationError {
+                    return
                 } catch {
+                    if Task.isCancelled || !self.canAutoReconnect(deviceId: bookmark.deviceId, session: session) {
+                        return
+                    }
                     let delay = self.reconnectLogic.backoff(attempt: attempt)
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }

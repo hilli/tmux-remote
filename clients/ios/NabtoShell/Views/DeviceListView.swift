@@ -125,40 +125,25 @@ struct DeviceListView: View {
     }
 
     private func probeAllDevices() async {
-        NSLog("[PROBE] probeAllDevices starting with %d devices", bookmarkStore.devices.count)
         for device in bookmarkStore.devices {
-            deviceStatuses[device.deviceId] = .probing
+            if let lastSession = device.lastSession, !lastSession.isEmpty {
+                // Optimistic UI on resume/back: show the last known session immediately
+                // while the live probe is in flight.
+                deviceStatuses[device.deviceId] = .online([
+                    SessionInfo(name: lastSession, cols: 0, rows: 0, attached: 1)
+                ])
+            } else {
+                deviceStatuses[device.deviceId] = .probing
+            }
         }
 
-        await withTaskGroup(of: (String, DeviceStatus).self) { group in
-            for device in bookmarkStore.devices {
-                group.addTask {
-                    do {
-                        NSLog("[PROBE] %@ calling connection(for:)", device.deviceId)
-                        let conn = try await connectionManager.connection(for: device)
-                        NSLog("[PROBE] %@ got connection, creating CoAP request", device.deviceId)
-                        let coap = try conn.createCoapRequest(method: "GET", path: "/terminal/sessions")
-                        NSLog("[PROBE] %@ executing CoAP", device.deviceId)
-                        let response = try await coap.executeAsync()
-                        NSLog("[PROBE] %@ CoAP response status: %d", device.deviceId, response.status)
-                        guard response.status == 205, let payload = response.payload else {
-                            return (device.deviceId, .online([]))
-                        }
-                        let sessions = CBORHelpers.decodeSessions(from: payload)
-                        NSLog("[PROBE] %@ found %d sessions", device.deviceId, sessions.count)
-                        return (device.deviceId, .online(sessions))
-                    } catch {
-                        NSLog("[PROBE] %@ error: %@", device.deviceId, "\(error)")
-                        return (device.deviceId, .offline)
-                    }
-                }
+        for device in bookmarkStore.devices {
+            do {
+                let sessions = try await connectionManager.probeSessions(for: device)
+                deviceStatuses[device.deviceId] = .online(sessions)
+            } catch {
+                deviceStatuses[device.deviceId] = .offline
             }
-
-            for await (deviceId, status) in group {
-                NSLog("[PROBE] setting status for %@", deviceId)
-                deviceStatuses[deviceId] = status
-            }
-            NSLog("[PROBE] all probes complete")
         }
     }
 }

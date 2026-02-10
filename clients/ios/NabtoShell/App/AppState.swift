@@ -13,9 +13,6 @@ class AppState {
         self.connectionManager = cm
         self.nabtoService = NabtoService(connectionManager: cm, bookmarkStore: store)
         injectTestConfigIfNeeded()
-        if ProcessInfo.processInfo.environment["UI_TESTING"] == nil {
-            cm.warmCache(bookmarks: store.devices)
-        }
     }
 
     private func injectTestConfigIfNeeded() {

@@ -17,6 +17,7 @@ struct TerminalScreen: View {
     @State private var isConnecting = false
     @State private var isReconnecting = false
     @State private var isDismissing = false
+    @State private var connectTask: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
     let onDismiss: () -> Void
 
@@ -38,6 +39,7 @@ struct TerminalScreen: View {
                     }
                 },
                 onReady: {
+                    guard !isDismissing else { return }
                     setupCallbacks()
                     isTerminalReady = true
                 }
@@ -82,11 +84,24 @@ struct TerminalScreen: View {
         }
         .navigationBarHidden(true)
         .task(id: isTerminalReady) {
-            guard isTerminalReady, !isConnecting, !initialConnectionDone else { return }
+            guard isTerminalReady, !isConnecting, !initialConnectionDone, !isDismissing else { return }
             isConnecting = true
-            await connectAndAttach()
-            initialConnectionDone = true
+            let task = Task {
+                await connectAndAttach()
+            }
+            connectTask = task
+            await task.value
+            if !task.isCancelled && !isDismissing {
+                initialConnectionDone = true
+            }
+            connectTask = nil
             isConnecting = false
+        }
+        .onDisappear {
+            isDismissing = true
+            teardownTransientTasks()
+            nabtoService.disableReconnectContext()
+            nabtoService.disconnect(keepConnection: true)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active && initialConnectionDone {
@@ -94,7 +109,11 @@ struct TerminalScreen: View {
             }
         }
         .onChange(of: connectionManager.deviceStates[bookmark.deviceId]) { _, newState in
-            if newState == .disconnected && initialConnectionDone && !isReconnecting && !isDismissing {
+            if newState == .disconnected &&
+                initialConnectionDone &&
+                !isReconnecting &&
+                !isDismissing &&
+                nabtoService.canAutoReconnect(deviceId: bookmark.deviceId, session: sessionName) {
                 handleStreamClosed()
             }
         }
@@ -142,26 +161,45 @@ struct TerminalScreen: View {
 
     private func dismissToDevices() {
         isDismissing = true
-        nabtoService.disconnect()
+        teardownTransientTasks()
+        nabtoService.disableReconnectContext()
+        nabtoService.disconnect(keepConnection: true)
         onDismiss()
     }
 
+    private func teardownTransientTasks() {
+        connectTask?.cancel()
+        connectTask = nil
+        isConnecting = false
+    }
+
     private func setupCallbacks() {
+        nabtoService.enableReconnectContext(deviceId: bookmark.deviceId, session: sessionName)
         nabtoService.onStreamData = { [bridge] bytes in
             bridge.feed(bytes: bytes)
         }
         nabtoService.onStreamClosed = { [self] in
-            guard !isDismissing else { return }
+            guard nabtoService.canAutoReconnect(deviceId: bookmark.deviceId, session: sessionName) else { return }
             handleStreamClosed()
         }
     }
 
     private func connectAndAttach() async {
+        guard !isDismissing else { return }
         do {
             try await nabtoService.connect(bookmark: bookmark)
+            try Task.checkCancellation()
+            guard !isDismissing else { throw CancellationError() }
             try await nabtoService.attach(bookmark: bookmark, session: sessionName, cols: currentCols, rows: currentRows)
+            try Task.checkCancellation()
+            guard !isDismissing else { throw CancellationError() }
             try await nabtoService.openStream(bookmark: bookmark)
+            try Task.checkCancellation()
+            guard !isDismissing else { throw CancellationError() }
             bookmarkStore.updateLastSession(deviceId: bookmark.deviceId, session: sessionName)
+        } catch is CancellationError {
+            // Navigated away before initial resume connect completed.
+            return
         } catch let error as NabtoError {
             switch error {
             case .sessionNotFound(let name):
@@ -209,6 +247,9 @@ struct TerminalScreen: View {
     }
 
     private func handleForegroundReturn() {
+        guard nabtoService.canAutoReconnect(deviceId: bookmark.deviceId, session: sessionName) else {
+            return
+        }
         let state = connectionManager.deviceStates[bookmark.deviceId] ?? .disconnected
         guard state != .connected || nabtoService.currentSession == nil else {
             return
@@ -230,6 +271,9 @@ struct TerminalScreen: View {
     }
 
     private func handleStreamClosed() {
+        guard nabtoService.canAutoReconnect(deviceId: bookmark.deviceId, session: sessionName) else {
+            return
+        }
         guard !isReconnecting else { return }
         isReconnecting = true
         nabtoService.attemptReconnect(
