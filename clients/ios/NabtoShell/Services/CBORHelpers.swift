@@ -37,11 +37,22 @@ enum CBORHelpers {
 
     // MARK: - Decoding
 
+    /// Decode a control stream message: CBOR map with "sessions" key.
+    /// Format: {"sessions": [{name, cols, rows, attached}, ...]}
+    static func decodeControlMessage(from data: Data) -> [SessionInfo] {
+        guard let decoded = try? CBOR.decode([UInt8](data)) else { return [] }
+        guard case .map(let outerMap) = decoded else { return [] }
+        guard case .array(let items) = outerMap[.utf8String("sessions")] else { return [] }
+        return decodeSessionArray(items)
+    }
+
     static func decodeSessions(from data: Data) -> [SessionInfo] {
         guard let decoded = try? CBOR.decode([UInt8](data)) else { return [] }
-
         guard case .array(let items) = decoded else { return [] }
+        return decodeSessionArray(items)
+    }
 
+    private static func decodeSessionArray(_ items: [CBOR]) -> [SessionInfo] {
         var sessions: [SessionInfo] = []
         for item in items {
             guard case .map(let map) = item else { continue }
@@ -76,7 +87,6 @@ enum CBORHelpers {
 
             sessions.append(SessionInfo(name: name, cols: cols, rows: rows, attached: attached))
         }
-
         return sessions
     }
 }

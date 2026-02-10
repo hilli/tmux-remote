@@ -1,5 +1,6 @@
 #include "nabtoshell_coap_handler.h"
 #include "nabtoshell.h"
+#include "nabtoshell_control_stream.h"
 #include "nabtoshell_tmux.h"
 
 #include <tinycbor/cbor.h>
@@ -89,6 +90,8 @@ static void handle_request(struct nabtoshell_coap_handler* handler,
         nabto_device_coap_error_response(request, 500, "Failed to create session");
         return;
     }
+
+    nabtoshell_control_stream_notify(&app->controlStreamListener);
 
     nabto_device_coap_response_set_code(request, 201);
     nabto_device_coap_response_ready(request);

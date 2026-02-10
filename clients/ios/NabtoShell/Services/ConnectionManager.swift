@@ -21,6 +21,9 @@ class ConnectionManager {
     /// Per-device connection state visible to UI.
     private(set) var deviceStates: [String: ConnectionState] = [:]
 
+    /// Live session lists pushed by agent control streams.
+    private(set) var deviceSessions: [String: [SessionInfo]] = [:]
+
     private struct PendingConnect {
         let id: UUID
         let task: Task<Connection, Error>
@@ -30,12 +33,14 @@ class ConnectionManager {
     private var connections: [String: Connection] = [:]
     private var pendingConnects: [String: PendingConnect] = [:]
     private var eventReceivers: [String: EventReceiver] = [:]
+    private var controlStreams: [String: NabtoEdgeClient.Stream] = [:]
+    private var controlReadTasks: [String: Task<Void, Never>] = [:]
 
     init() {
         self.client = Client()
     }
 
-    /// Probe terminal sessions for device-list status.
+    /// Probe terminal sessions for device-list status (CoAP fallback).
     ///
     /// Fast path: use a cached live connection (e.g. when returning from TerminalScreen).
     /// Fallback: use a short-lived isolated connection.
@@ -142,6 +147,10 @@ class ConnectionManager {
             self.eventReceivers[deviceId] = receiver
             self.pendingConnects.removeValue(forKey: deviceId)
             self.deviceStates[deviceId] = .connected
+
+            // Open control stream for live session updates (best-effort)
+            self.openControlStream(deviceId: deviceId, connection: conn)
+
             return conn
         }
 
@@ -165,6 +174,8 @@ class ConnectionManager {
         if let pending = pendingConnects.removeValue(forKey: deviceId) {
             pending.task.cancel()
         }
+
+        closeControlStream(deviceId: deviceId)
 
         if let conn = connections.removeValue(forKey: deviceId) {
             if let receiver = eventReceivers.removeValue(forKey: deviceId) {
@@ -226,9 +237,77 @@ class ConnectionManager {
         connections[deviceId] = conn
         eventReceivers[deviceId] = receiver
         deviceStates[deviceId] = .connected
+
+        openControlStream(deviceId: deviceId, connection: conn)
+    }
+
+    // MARK: - Control Stream
+
+    private func openControlStream(deviceId: String, connection: Connection) {
+        controlReadTasks[deviceId] = Task { [weak self] in
+            do {
+                let stream = try connection.createStream()
+                try await stream.openAsync(streamPort: 2)
+                await MainActor.run {
+                    self?.controlStreams[deviceId] = stream
+                }
+                try await self?.controlReadLoop(deviceId: deviceId, stream: stream)
+            } catch {
+                // Agent may not support control stream (old version); fall back silently.
+            }
+            await MainActor.run {
+                self?.controlStreams.removeValue(forKey: deviceId)
+                self?.deviceSessions.removeValue(forKey: deviceId)
+            }
+        }
+    }
+
+    private func closeControlStream(deviceId: String) {
+        controlReadTasks.removeValue(forKey: deviceId)?.cancel()
+        if let stream = controlStreams.removeValue(forKey: deviceId) {
+            stream.abort()
+        }
+        deviceSessions.removeValue(forKey: deviceId)
+    }
+
+    private func controlReadLoop(deviceId: String, stream: NabtoEdgeClient.Stream) async throws {
+        var readBuffer = Data()
+
+        while !Task.isCancelled {
+            // Read 4-byte big-endian length prefix
+            let lengthData = try await readExactly(stream: stream, buffer: &readBuffer, count: 4)
+            let length = lengthData.withUnsafeBytes { buf in
+                UInt32(bigEndian: buf.load(as: UInt32.self))
+            }
+
+            guard length > 0 && length < 65536 else { break }
+
+            // Read CBOR payload
+            let payload = try await readExactly(stream: stream, buffer: &readBuffer, count: Int(length))
+            let sessions = CBORHelpers.decodeControlMessage(from: payload)
+
+            await MainActor.run { [weak self] in
+                self?.deviceSessions[deviceId] = sessions
+            }
+        }
+    }
+
+    /// Read exactly `count` bytes from a Nabto stream, preserving excess
+    /// bytes in `buffer` for subsequent calls.
+    private func readExactly(stream: NabtoEdgeClient.Stream, buffer: inout Data, count: Int) async throws -> Data {
+        while buffer.count < count {
+            try Task.checkCancellation()
+            let chunk = try await stream.readSomeAsync()
+            if chunk.isEmpty { throw NabtoError.streamFailed("Control stream closed") }
+            buffer.append(chunk)
+        }
+        let result = buffer.prefix(count)
+        buffer.removeFirst(count)
+        return Data(result)
     }
 
     private func handleConnectionClosed(deviceId: String) {
+        closeControlStream(deviceId: deviceId)
         connections.removeValue(forKey: deviceId)
         eventReceivers.removeValue(forKey: deviceId)
         deviceStates[deviceId] = .disconnected
@@ -251,6 +330,11 @@ class ConnectionManager {
         } onCancel: {
             conn.stop()
         }
+    }
+
+    /// CoAP-based session list (fallback for old agents without control stream).
+    func listSessionsCoAP(on conn: Connection, timeoutNanoseconds: UInt64) async throws -> [SessionInfo] {
+        return try await listSessions(on: conn, timeoutNanoseconds: timeoutNanoseconds)
     }
 
     private func listSessions(on conn: Connection, timeoutNanoseconds: UInt64) async throws -> [SessionInfo] {

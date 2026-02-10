@@ -12,18 +12,18 @@ struct DeviceListView: View {
     let connectionManager: ConnectionManager
     let bookmarkStore: BookmarkStore
     @State private var showPairing = false
-    @State private var deviceStatuses: [String: DeviceStatus] = [:]
     @State private var expandedDevices: Set<String> = []
     @State private var selectedTerminal: TerminalTarget?
     @State private var showNewSessionAlert = false
     @State private var newSessionName = ""
     @State private var newSessionDevice: DeviceBookmark?
+    @State private var probeStatuses: [String: ProbeStatus] = [:]
 
-    enum DeviceStatus {
-        case unknown
+    /// Tracks devices where we fell back to CoAP probing (old agent without control stream).
+    private enum ProbeStatus {
         case probing
-        case online([SessionInfo])
-        case offline
+        case done([SessionInfo])
+        case failed
     }
 
     var body: some View {
@@ -76,7 +76,7 @@ struct DeviceListView: View {
             if let lastId = bookmarkStore.lastDeviceId {
                 expandedDevices.insert(lastId)
             }
-            await probeAllDevices()
+            await connectAllDevices()
         }
     }
 
@@ -88,7 +88,13 @@ struct DeviceListView: View {
             }
             .onDelete(perform: deleteDevices)
         }
-        .refreshable { await probeAllDevices() }
+        .refreshable {
+            probeStatuses.removeAll()
+            for device in bookmarkStore.devices {
+                connectionManager.disconnect(deviceId: device.deviceId)
+            }
+            await connectAllDevices()
+        }
     }
 
     @ViewBuilder
@@ -126,18 +132,20 @@ struct DeviceListView: View {
                     .font(.body)
                     .fontWeight(.medium)
 
-                if case .online(let sessions) = deviceStatuses[device.deviceId] {
+                let status = deviceStatus(for: device)
+                switch status {
+                case .online(let sessions):
                     let names = sessions.map(\.name).joined(separator: ", ")
                     Text(names.isEmpty ? "No sessions" : names)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .accessibilityIdentifier("device-status-\(device.deviceId)")
-                } else if case .offline = deviceStatuses[device.deviceId] {
+                case .offline:
                     Text("Offline")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .accessibilityIdentifier("device-status-\(device.deviceId)")
-                } else {
+                case .connecting, .unknown:
                     Text("Checking...")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -158,7 +166,8 @@ struct DeviceListView: View {
 
     @ViewBuilder
     private func expandedContent(for device: DeviceBookmark) -> some View {
-        switch deviceStatuses[device.deviceId] {
+        let status = deviceStatus(for: device)
+        switch status {
         case .online(let sessions):
             if sessions.isEmpty {
                 Text("No tmux sessions")
@@ -196,7 +205,7 @@ struct DeviceListView: View {
                 .foregroundColor(.secondary)
                 .padding(.leading, 24)
 
-        case .probing, .unknown, .none:
+        case .connecting, .unknown:
             HStack {
                 ProgressView()
                     .scaleEffect(0.8)
@@ -235,13 +244,62 @@ struct DeviceListView: View {
         .padding(.vertical, 4)
     }
 
-    private func statusColor(for deviceId: String) -> Color {
-        switch deviceStatuses[deviceId] {
-        case .online: return .green
-        case .offline: return .red
-        case .probing, .unknown, .none: return .gray
+    // MARK: - Status Derivation
+
+    private enum DeviceStatus {
+        case unknown
+        case connecting
+        case online([SessionInfo])
+        case offline
+    }
+
+    private func deviceStatus(for device: DeviceBookmark) -> DeviceStatus {
+        let deviceId = device.deviceId
+
+        // Primary: live control stream data
+        if let sessions = connectionManager.deviceSessions[deviceId] {
+            return .online(sessions)
+        }
+
+        // Fallback: CoAP probe results (for old agents without control stream)
+        if let probe = probeStatuses[deviceId] {
+            switch probe {
+            case .probing: return .connecting
+            case .done(let sessions): return .online(sessions)
+            case .failed: return .offline
+            }
+        }
+
+        // Connection state
+        switch connectionManager.deviceStates[deviceId] {
+        case .connected:
+            return .connecting  // connected but no control stream data yet
+        case .connecting:
+            return .connecting
+        case .disconnected, .offline:
+            return .offline
+        case .reconnecting:
+            return .connecting
+        case nil:
+            return .unknown
         }
     }
+
+    private func statusColor(for deviceId: String) -> Color {
+        if connectionManager.deviceSessions[deviceId] != nil {
+            return .green
+        }
+        if case .done = probeStatuses[deviceId] {
+            return .green
+        }
+        switch connectionManager.deviceStates[deviceId] {
+        case .connected: return .green
+        case .disconnected, .offline: return .red
+        default: return .gray
+        }
+    }
+
+    // MARK: - Actions
 
     private func deleteDevices(at offsets: IndexSet) {
         for index in offsets {
@@ -252,23 +310,28 @@ struct DeviceListView: View {
         }
     }
 
-    private func probeAllDevices() async {
+    private func connectAllDevices() async {
         for device in bookmarkStore.devices {
-            if let lastSession = device.lastSession, !lastSession.isEmpty {
-                deviceStatuses[device.deviceId] = .online([
-                    SessionInfo(name: lastSession, cols: 0, rows: 0, attached: 1)
-                ])
-            } else {
-                deviceStatuses[device.deviceId] = .probing
-            }
-        }
+            Task {
+                do {
+                    let conn = try await connectionManager.connection(for: device)
 
-        for device in bookmarkStore.devices {
-            do {
-                let sessions = try await connectionManager.probeSessions(for: device)
-                deviceStatuses[device.deviceId] = .online(sessions)
-            } catch {
-                deviceStatuses[device.deviceId] = .offline
+                    // If control stream hasn't delivered data within 3s, fall back to CoAP probe.
+                    // This handles old agents without control stream support.
+                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                    if connectionManager.deviceSessions[device.deviceId] == nil {
+                        probeStatuses[device.deviceId] = .probing
+                        do {
+                            let sessions = try await connectionManager.listSessionsCoAP(
+                                on: conn, timeoutNanoseconds: 5_000_000_000)
+                            probeStatuses[device.deviceId] = .done(sessions)
+                        } catch {
+                            probeStatuses[device.deviceId] = .failed
+                        }
+                    }
+                } catch {
+                    // Connection failed; deviceStates will reflect .disconnected
+                }
             }
         }
     }
@@ -276,15 +339,12 @@ struct DeviceListView: View {
     private func createAndAttach(device: DeviceBookmark, name: String) async {
         do {
             try await nabtoService.createSession(bookmark: device, name: name, cols: 80, rows: 24)
-            let sessions = try await connectionManager.probeSessions(for: device)
-            deviceStatuses[device.deviceId] = .online(sessions)
+            // Control stream will push the updated session list automatically.
+            // Wait briefly for it, then navigate.
+            try? await Task.sleep(nanoseconds: 500_000_000)
             selectedTerminal = TerminalTarget(bookmark: device, session: name)
         } catch {
-            // Refresh to show current state
-            do {
-                let sessions = try await connectionManager.probeSessions(for: device)
-                deviceStatuses[device.deviceId] = .online(sessions)
-            } catch {}
+            // Session creation failed; control stream or next poll will update status.
         }
     }
 }

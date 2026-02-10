@@ -124,6 +124,22 @@ Do not work on iOS, pattern overlays, or multi-session tabs until Phase 1 is com
 - SwiftTerm: https://github.com/migueldeicaza/SwiftTerm
 - NabtoEdgeClientSwift: available via CocoaPods
 
+## Nabto SDK rules
+
+### No blocking in callbacks (critical)
+
+The Nabto core runs its own event loop thread. All future callbacks execute on that thread.
+
+- A callback function must never make blocking calls (pthread_join, waitpid, blocking write, contested mutex). This freezes the entire SDK.
+- Defer blocking work to a separate thread. See existing patterns: `cleanup_thread_func` in `nabtoshell_stream.c`, worker threads in `nabtoshell_coap_handler.c`.
+- This applies to both agent (C) and iOS client (Swift): Nabto SDK callbacks dispatch to the core thread. No synchronous I/O or long computation in these callbacks.
+
+### Shutdown sequence
+
+1. Stop all listeners (`nabto_device_listener_stop()`, non-blocking)
+2. Call `nabto_device_close()` then `nabto_device_stop()` (blocks until outstanding ops complete)
+3. Free listeners, futures, then device, in reverse creation order
+
 ## Common mistakes to avoid
 
 - Do not use git submodules. The Embedded SDK is fetched via FetchContent.

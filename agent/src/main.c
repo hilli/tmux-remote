@@ -261,8 +261,9 @@ bool run_agent(const struct args* args)
     nabtoshell_coap_create_init(&app.coapCreate, app.device, &app);
     nabtoshell_coap_status_init(&app.coapStatus, app.device, &app);
 
-    /* Initialize stream listener */
+    /* Initialize stream listeners */
     nabtoshell_stream_listener_init(&app.streamListener, app.device, &app);
+    nabtoshell_control_stream_listener_init(&app.controlStreamListener, app.device, &app);
 
     /* Print banner */
     char* deviceFingerprint = NULL;
@@ -306,6 +307,7 @@ bool run_agent(const struct args* args)
     nabtoshell_coap_handler_stop(&app.coapCreate);
     nabtoshell_coap_handler_stop(&app.coapStatus);
     nabtoshell_stream_listener_stop(&app.streamListener);
+    nabtoshell_control_stream_listener_stop(&app.controlStreamListener);
 
     struct device_close_state closeState;
     closeState.ec = NABTO_DEVICE_EC_OK;
@@ -332,6 +334,7 @@ bool run_agent(const struct args* args)
     nabtoshell_coap_handler_deinit(&app.coapCreate);
     nabtoshell_coap_handler_deinit(&app.coapStatus);
     nabtoshell_stream_listener_deinit(&app.streamListener);
+    nabtoshell_control_stream_listener_deinit(&app.controlStreamListener);
 
     device_config_deinit(&deviceConfig);
     nabtoshell_iam_deinit(&app.iam);

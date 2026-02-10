@@ -264,8 +264,11 @@ final class NabtoShellUITests: XCTestCase {
         let status = waitForProbeComplete(timeout: 15)
         XCTAssertNotEqual(status.label, "Offline")
 
-        // Expand device and tap session to reconnect
-        deviceRow.tap()
+        // Expand device if not already expanded (control stream may keep it populated)
+        let existingRows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'session-row-'"))
+        if existingRows.count == 0 {
+            deviceRow.tap()
+        }
 
         let count = waitForSessionRows()
         XCTAssertTrue(count > 0, "Should find session rows after re-expanding")

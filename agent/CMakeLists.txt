@@ -31,6 +31,7 @@ set(src
   src/nabtoshell_coap_attach.c
   src/nabtoshell_coap_create.c
   src/nabtoshell_coap_status.c
+  src/nabtoshell_control_stream.c
   src/nabtoshell_stream.c
   src/nabtoshell_session.c
   src/nabtoshell_tmux.c

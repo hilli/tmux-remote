@@ -2,6 +2,7 @@
 #define NABTOSHELL_H_
 
 #include "nabtoshell_coap_handler.h"
+#include "nabtoshell_control_stream.h"
 #include "nabtoshell_session.h"
 #include "nabtoshell_stream.h"
 #include "nabtoshell_iam.h"
@@ -32,8 +33,9 @@ struct nabtoshell {
     struct nabtoshell_coap_handler coapCreate;
     struct nabtoshell_coap_handler coapStatus;
 
-    /* Stream listener */
+    /* Stream listeners */
     struct nabtoshell_stream_listener streamListener;
+    struct nabtoshell_control_stream_listener controlStreamListener;
 
     /* Session tracking */
     struct nabtoshell_session_map sessionMap;

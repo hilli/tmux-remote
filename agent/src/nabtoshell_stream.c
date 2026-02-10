@@ -1,5 +1,6 @@
 #include "nabtoshell_stream.h"
 #include "nabtoshell.h"
+#include "nabtoshell_control_stream.h"
 #include "nabtoshell_session.h"
 #include "nabtoshell_tmux.h"
 
@@ -353,6 +354,8 @@ static void* pty_reader_thread(void* arg)
     }
 
     atomic_store(&as->closing, true);
+    /* Notify control stream monitor: session may have died. */
+    nabtoshell_control_stream_notify(&as->app->controlStreamListener);
     start_stream_close_once(as);
     return NULL;
 }

@@ -1,5 +1,6 @@
 #include "nabtoshell_coap_handler.h"
 #include "nabtoshell.h"
+#include "nabtoshell_control_stream.h"
 #include "nabtoshell_tmux.h"
 
 #include <tinycbor/cbor.h>
@@ -82,11 +83,16 @@ static void handle_request(struct nabtoshell_coap_handler* handler,
         return;
     }
 
-    /* Optionally create the session if it does not exist */
-    if (createIfMissing && !nabtoshell_tmux_session_exists(sessionName)) {
-        if (!nabtoshell_tmux_create_session(sessionName, (uint16_t)cols,
-                                            (uint16_t)rows, NULL)) {
-            nabto_device_coap_error_response(request, 500, "Failed to create session");
+    /* Verify the session exists (or create it if requested) */
+    if (!nabtoshell_tmux_session_exists(sessionName)) {
+        if (createIfMissing) {
+            if (!nabtoshell_tmux_create_session(sessionName, (uint16_t)cols,
+                                                (uint16_t)rows, NULL)) {
+                nabto_device_coap_error_response(request, 500, "Failed to create session");
+                return;
+            }
+        } else {
+            nabto_device_coap_error_response(request, 404, "Session not found");
             return;
         }
     }
@@ -99,6 +105,8 @@ static void handle_request(struct nabtoshell_coap_handler* handler,
         nabto_device_coap_error_response(request, 500, "Session map full");
         return;
     }
+
+    nabtoshell_control_stream_notify(&app->controlStreamListener);
 
     nabto_device_coap_response_set_code(request, 201);
     nabto_device_coap_response_ready(request);
