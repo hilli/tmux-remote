@@ -18,6 +18,17 @@ FetchContent_GetProperties(nabto_embedded_sdk SOURCE_DIR NABTO_SDK_SRC)
 include(${NABTO_SDK_SRC}/nabto_primary_files.cmake)
 
 find_package(Threads REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PCRE2 REQUIRED IMPORTED_TARGET libpcre2-8)
+
+# Pattern detection library (shared between agent and tests)
+set(pattern_src
+  src/nabtoshell_ansi_stripper.c
+  src/nabtoshell_rolling_buffer.c
+  src/nabtoshell_pattern_config.c
+  src/nabtoshell_pattern_matcher.c
+  src/nabtoshell_pattern_engine.c
+)
 
 set(src
   ${ne_iam_src}
@@ -36,6 +47,7 @@ set(src
   src/nabtoshell_session.c
   src/nabtoshell_tmux.c
   src/nabtoshell_banner.c
+  ${pattern_src}
 )
 
 add_executable(nabtoshell-agent ${src})
@@ -55,6 +67,7 @@ target_link_libraries(nabtoshell-agent
   nm_fs_posix
   TinyCBOR::tinycbor
   Threads::Threads
+  PkgConfig::PCRE2
 )
 
 if(NOT APPLE)
@@ -62,3 +75,34 @@ if(NOT APPLE)
 endif()
 
 install(TARGETS nabtoshell-agent RUNTIME DESTINATION bin)
+
+# Tests (only if Check is found)
+pkg_check_modules(CHECK IMPORTED_TARGET check)
+if(CHECK_FOUND)
+  enable_testing()
+
+  # Static library for pattern detection (no Nabto SDK dependency)
+  add_library(nabtoshell_pattern STATIC ${pattern_src})
+  target_include_directories(nabtoshell_pattern PUBLIC src)
+  target_link_libraries(nabtoshell_pattern PUBLIC cjson PkgConfig::PCRE2)
+
+  # Test: ANSI Stripper
+  add_executable(test_ansi_stripper tests/test_ansi_stripper.c)
+  target_link_libraries(test_ansi_stripper nabtoshell_pattern PkgConfig::CHECK)
+  add_test(NAME ansi_stripper COMMAND test_ansi_stripper)
+
+  # Test: Pattern Config
+  add_executable(test_pattern_config tests/test_pattern_config.c)
+  target_link_libraries(test_pattern_config nabtoshell_pattern PkgConfig::CHECK)
+  add_test(NAME pattern_config COMMAND test_pattern_config)
+
+  # Test: Pattern Matcher
+  add_executable(test_pattern_matcher tests/test_pattern_matcher.c)
+  target_link_libraries(test_pattern_matcher nabtoshell_pattern PkgConfig::CHECK)
+  add_test(NAME pattern_matcher COMMAND test_pattern_matcher)
+
+  # Test: Pattern Engine
+  add_executable(test_pattern_engine tests/test_pattern_engine.c)
+  target_link_libraries(test_pattern_engine nabtoshell_pattern PkgConfig::CHECK)
+  add_test(NAME pattern_engine COMMAND test_pattern_engine)
+endif()
