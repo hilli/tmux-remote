@@ -21,7 +21,23 @@ struct TerminalViewWrapper: UIViewRepresentable {
     let onSizeChanged: (Int, Int) -> Void
     var onReady: (() -> Void)?
 
-    func makeUIView(context: Context) -> TerminalView {
+    #if DEBUG
+    private static let isStubMode = ProcessInfo.processInfo.arguments.contains("--stub-terminal")
+    #endif
+
+    func makeUIView(context: Context) -> UIView {
+        #if DEBUG
+        if Self.isStubMode {
+            // Use a plain UIView in stub mode to avoid SwiftTerm's cursor blink
+            // timer, which prevents XCUITest quiescence and causes 120s stalls.
+            let stub = UIView(frame: .zero)
+            stub.backgroundColor = .black
+            bridge.coordinator = context.coordinator
+            DispatchQueue.main.async { onReady?() }
+            return stub
+        }
+        #endif
+
         let tv = TerminalView(frame: .zero)
         tv.terminalDelegate = context.coordinator
         tv.backgroundColor = .black
@@ -44,7 +60,7 @@ struct TerminalViewWrapper: UIViewRepresentable {
         return tv
     }
 
-    func updateUIView(_ uiView: TerminalView, context: Context) {}
+    func updateUIView(_ uiView: UIView, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onSend: onSend, onSizeChanged: onSizeChanged)

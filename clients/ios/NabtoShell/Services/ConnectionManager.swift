@@ -16,6 +16,7 @@ private class EventReceiver: NSObject, ConnectionEventReceiver {
     }
 }
 
+@MainActor
 @Observable
 class ConnectionManager {
     /// Per-device connection state visible to UI.
@@ -35,6 +36,9 @@ class ConnectionManager {
     private var eventReceivers: [String: EventReceiver] = [:]
     private var controlStreams: [String: NabtoEdgeClient.Stream] = [:]
     private var controlReadTasks: [String: Task<Void, Never>] = [:]
+
+    /// Callback for pattern events from agent control stream. (deviceId, event)
+    @ObservationIgnored var onPatternEvent: ((String, ControlStreamEvent) -> Void)?
 
     init() {
         self.client = Client()
@@ -72,10 +76,9 @@ class ConnectionManager {
         return try await listSessions(on: conn, timeoutNanoseconds: 30_000_000_000)
     }
 
-    deinit {
-        for (deviceId, _) in connections {
-            disconnect(deviceId: deviceId)
-        }
+    nonisolated deinit {
+        // deinit is nonisolated; cannot access @MainActor state.
+        // Connections will be cleaned up by ARC releasing the NabtoEdgeClient objects.
     }
 
     /// Returns a cached connected Connection, or creates one.
@@ -241,6 +244,14 @@ class ConnectionManager {
         openControlStream(deviceId: deviceId, connection: conn)
     }
 
+    /// Send a pattern dismiss message to the agent's control stream.
+    /// Called when the user taps an action button on the pattern overlay.
+    func sendPatternDismiss(deviceId: String) {
+        guard let stream = controlStreams[deviceId] else { return }
+        let data = CBORHelpers.encodePatternDismiss()
+        Task { try? await stream.writeAsync(data: data) }
+    }
+
     // MARK: - Control Stream
 
     private func openControlStream(deviceId: String, connection: Connection) {
@@ -248,17 +259,13 @@ class ConnectionManager {
             do {
                 let stream = try connection.createStream()
                 try await stream.openAsync(streamPort: 2)
-                await MainActor.run {
-                    self?.controlStreams[deviceId] = stream
-                }
+                self?.controlStreams[deviceId] = stream
                 try await self?.controlReadLoop(deviceId: deviceId, stream: stream)
             } catch {
                 // Agent may not support control stream (old version); fall back silently.
             }
-            await MainActor.run {
-                self?.controlStreams.removeValue(forKey: deviceId)
-                self?.deviceSessions.removeValue(forKey: deviceId)
-            }
+            self?.controlStreams.removeValue(forKey: deviceId)
+            self?.deviceSessions.removeValue(forKey: deviceId)
         }
     }
 
@@ -284,10 +291,24 @@ class ConnectionManager {
 
             // Read CBOR payload
             let payload = try await readExactly(stream: stream, buffer: &readBuffer, count: Int(length))
-            let sessions = CBORHelpers.decodeControlMessage(from: payload)
 
-            await MainActor.run { [weak self] in
-                self?.deviceSessions[deviceId] = sessions
+            guard let event = CBORHelpers.decodeControlStreamEvent(from: payload) else { continue }
+
+            switch event {
+            case .sessions(let sessions):
+                self.deviceSessions[deviceId] = sessions
+            case .patternMatch(let match):
+                AppLog.log("controlReadLoop: decoded patternMatch id=%@", match.id)
+                let hasCallback = self.onPatternEvent != nil
+                AppLog.log("controlReadLoop: patternMatch id=%@, onPatternEvent=%@",
+                           match.id, hasCallback ? "set" : "NIL")
+                self.onPatternEvent?(deviceId, event)
+            case .patternDismiss:
+                AppLog.log("controlReadLoop: decoded patternDismiss")
+                let hasCallback = self.onPatternEvent != nil
+                AppLog.log("controlReadLoop: patternDismiss, onPatternEvent=%@",
+                           hasCallback ? "set" : "NIL")
+                self.onPatternEvent?(deviceId, event)
             }
         }
     }

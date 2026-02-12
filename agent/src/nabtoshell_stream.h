@@ -69,4 +69,10 @@ nabtoshell_pattern_match *nabtoshell_stream_copy_active_match_for_ref(
     struct nabtoshell_stream_listener* sl,
     NabtoDeviceConnectionRef ref);
 
+/* Thread-safe: dismiss the active pattern on the data stream matching
+ * the given connectionRef. Called when the client reports user action. */
+void nabtoshell_stream_dismiss_pattern_for_ref(
+    struct nabtoshell_stream_listener* sl,
+    NabtoDeviceConnectionRef ref);
+
 #endif

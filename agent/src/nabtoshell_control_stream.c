@@ -18,6 +18,7 @@ static void start_listen(struct nabtoshell_control_stream_listener* csl);
 static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
                             void* userData);
 static void* monitor_thread_func(void* arg);
+static void* reader_thread_func(void* arg);
 static void ensure_monitor_started(struct nabtoshell_control_stream_listener* csl);
 static uint8_t* encode_session_snapshot(const struct nabtoshell_tmux_list* list,
                                         size_t* outLen);
@@ -38,6 +39,10 @@ static void control_stream_retain(struct nabtoshell_active_control_stream* cs)
 static void control_stream_release_impl(struct nabtoshell_active_control_stream* cs)
 {
     if (atomic_fetch_sub_explicit(&cs->refCount, 1, memory_order_acq_rel) == 1) {
+        if (cs->readerThreadStarted) {
+            pthread_join(cs->readerThread, NULL);
+            cs->readerThreadStarted = false;
+        }
         if (cs->stream != NULL) {
             nabto_device_stream_free(cs->stream);
         }
@@ -263,6 +268,13 @@ static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
         return;
     }
 
+    /* Start reader thread before adding to list (non-blocking spawn) */
+    if (pthread_create(&cs->readerThread, NULL, reader_thread_func, cs) == 0) {
+        cs->readerThreadStarted = true;
+    } else {
+        printf("Failed to start control stream reader thread" NEWLINE);
+    }
+
     /* Add to linked list (under mutex, quick operation) */
     struct nabtoshell_control_stream_listener* csl =
         &cs->app->controlStreamListener;
@@ -274,6 +286,87 @@ static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
     /* Ensure monitor thread is running and wake it for initial snapshot */
     ensure_monitor_started(csl);
     nabtoshell_control_stream_notify(csl);
+}
+
+/*
+ * Read exactly `count` bytes from the control stream.
+ * Returns true on success, false on error/close.
+ * Uses blocking nabto_device_future_wait (safe on dedicated reader thread).
+ */
+static bool read_exactly(struct nabtoshell_active_control_stream* cs,
+                         uint8_t* buf, size_t count)
+{
+    size_t total = 0;
+    while (total < count && !atomic_load(&cs->closing)) {
+        size_t readLen = 0;
+        NabtoDeviceFuture* f = nabto_device_future_new(cs->device);
+        if (f == NULL) return false;
+        nabto_device_stream_read_some(cs->stream, f, buf + total,
+                                       count - total, &readLen);
+        NabtoDeviceError ec = nabto_device_future_wait(f);
+        nabto_device_future_free(f);
+        if (ec != NABTO_DEVICE_EC_OK) return false;
+        total += readLen;
+    }
+    return total == count;
+}
+
+/*
+ * Reader thread: reads length-prefixed CBOR messages from the client
+ * on the control stream. Handles "pattern_dismiss" by calling dismiss
+ * on the data stream's pattern engine.
+ */
+static void* reader_thread_func(void* arg)
+{
+    struct nabtoshell_active_control_stream* cs = arg;
+
+    while (!atomic_load(&cs->closing)) {
+        /* Read 4-byte big-endian length prefix */
+        uint8_t lenBuf[4];
+        if (!read_exactly(cs, lenBuf, 4)) break;
+
+        uint32_t payloadLen = ((uint32_t)lenBuf[0] << 24) |
+                              ((uint32_t)lenBuf[1] << 16) |
+                              ((uint32_t)lenBuf[2] << 8) |
+                              ((uint32_t)lenBuf[3]);
+
+        if (payloadLen == 0 || payloadLen > 65536) break;
+
+        uint8_t* payload = malloc(payloadLen);
+        if (payload == NULL) break;
+
+        if (!read_exactly(cs, payload, payloadLen)) {
+            free(payload);
+            break;
+        }
+
+        /* Decode CBOR message (reuse existing decoder with length prefix) */
+        size_t framedLen = 4 + payloadLen;
+        uint8_t* framed = malloc(framedLen);
+        if (framed == NULL) {
+            free(payload);
+            break;
+        }
+        memcpy(framed, lenBuf, 4);
+        memcpy(framed + 4, payload, payloadLen);
+        free(payload);
+
+        bool is_dismiss = false;
+        nabtoshell_pattern_match* match =
+            nabtoshell_pattern_cbor_decode(framed, framedLen, &is_dismiss);
+        free(framed);
+
+        if (is_dismiss) {
+            printf("[Control] reader: received pattern_dismiss from client, ref=%u" NEWLINE,
+                   (unsigned)cs->connectionRef);
+            nabtoshell_stream_dismiss_pattern_for_ref(
+                &cs->app->streamListener, cs->connectionRef);
+        }
+        nabtoshell_pattern_match_free(match);
+    }
+
+    atomic_store(&cs->closing, true);
+    return NULL;
 }
 
 static void ensure_monitor_started(struct nabtoshell_control_stream_listener* csl)
@@ -546,6 +639,8 @@ static void send_to_ref(struct nabtoshell_control_stream_listener* csl,
 #else
     int count = collect_targets_for_ref(csl, ref, snapshot, MAX_CONTROL_STREAMS);
 #endif
+    printf("[Pattern] send_to_ref: ref=%u, targets=%d, data_len=%zu" NEWLINE,
+           (unsigned)ref, count, len);
     for (int i = 0; i < count; i++) {
         send_to_stream(snapshot[i], data, len);
         control_stream_release_impl(snapshot[i]);
@@ -559,8 +654,14 @@ void nabtoshell_control_stream_send_pattern_match_for_ref(
 {
     size_t msgLen = 0;
     uint8_t* buf = nabtoshell_pattern_cbor_encode_match(match, &msgLen);
-    if (buf == NULL) return;
+    if (buf == NULL) {
+        printf("[Pattern] send_pattern_match_for_ref: CBOR encode failed for id=%s" NEWLINE,
+               match ? match->id : "NULL");
+        return;
+    }
 
+    printf("[Pattern] send_pattern_match_for_ref: id=%s, cbor_len=%zu, ref=%u" NEWLINE,
+           match->id, msgLen, (unsigned)ref);
     send_to_ref(csl, ref, buf, msgLen);
     free(buf);
 }
@@ -571,8 +672,13 @@ void nabtoshell_control_stream_send_pattern_dismiss_for_ref(
 {
     size_t msgLen = 0;
     uint8_t* buf = nabtoshell_pattern_cbor_encode_dismiss(&msgLen);
-    if (buf == NULL) return;
+    if (buf == NULL) {
+        printf("[Pattern] send_pattern_dismiss_for_ref: CBOR encode failed" NEWLINE);
+        return;
+    }
 
+    printf("[Pattern] send_pattern_dismiss_for_ref: ref=%u, cbor_len=%zu" NEWLINE,
+           (unsigned)ref, msgLen);
     send_to_ref(csl, ref, buf, msgLen);
     free(buf);
 }

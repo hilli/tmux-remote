@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "agents": {
+    "claude-code": {
+      "name": "Claude Code",
+      "patterns": [
+        {
+          "id": "numbered_prompt",
+          "type": "numbered_menu",
+          "regex": "Do you want to .+\\?\\n.*1\\. .+\\n.*2\\. .+",
+          "multi_line": true,
+          "action_template": { "keys": "{number}" }
+        },
+        {
+          "id": "yes_no_prompt",
+          "type": "yes_no",
+          "regex": "(?:Allow|Proceed|Run|Execute).*\\? \\(y\\/n\\)",
+          "actions": [
+            { "label": "Allow", "keys": "y" },
+            { "label": "Deny", "keys": "n" }
+          ]
+        },
+        {
+          "id": "diff_review",
+          "type": "accept_reject",
+          "regex": "Do you want to apply these changes",
+          "actions": [
+            { "label": "Accept", "keys": "y" },
+            { "label": "Reject", "keys": "n" }
+          ]
+        }
+      ]
+    },
+    "codex": {
+      "name": "OpenAI Codex CLI",
+      "patterns": []
+    },
+    "aider": {
+      "name": "Aider",
+      "patterns": []
+    }
+  }
+}

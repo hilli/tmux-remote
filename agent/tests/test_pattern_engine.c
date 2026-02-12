@@ -78,10 +78,70 @@ START_TEST(test_auto_dismiss)
     feed_string(&engine, "Continue? (y/n)");
     ck_assert_ptr_nonnull(engine.active_match);
 
-    // Feed enough filler to push prompt out of match window
-    char filler[2200];
-    memset(filler, 'x', 2100);
-    filler[2100] = '\0';
+    // Auto-dismiss re-scans the FULL buffer (capacity 8192), not just
+    // the match window. But MAX_MATCH_AGE (4000) force-dismisses before
+    // the prompt leaves the buffer. So we just need >MAX_MATCH_AGE chars.
+    char filler[4200];
+    memset(filler, 'x', 4100);
+    filler[4100] = '\0';
+    feed_string(&engine, filler);
+
+    ck_assert_ptr_null(engine.active_match);
+}
+END_TEST
+
+START_TEST(test_auto_dismiss_keeps_match_in_buffer)
+{
+    /* When a match is still within the full buffer (but past the match window),
+     * auto-dismiss re-scan should find it and KEEP the match active. This is
+     * the key fix: previously the re-scan only used MATCH_WINDOW and would
+     * incorrectly dismiss matches that were still in the buffer. */
+    nabtoshell_pattern_engine_select_agent(&engine, "test");
+    feed_string(&engine, "Continue? (y/n)");
+    ck_assert_ptr_nonnull(engine.active_match);
+
+    // Feed enough to trigger auto-dismiss check (>1500) and push past
+    // match window (4000), but NOT past MAX_MATCH_AGE (4000).
+    // Use exactly 2500 chars: > AUTO_DISMISS (1500) but < MAX_MATCH_AGE (4000).
+    char filler[2600];
+    memset(filler, 'x', 2500);
+    filler[2500] = '\0';
+    feed_string(&engine, filler);
+
+    // Match should still be active because the prompt is in the full buffer
+    // and hasn't reached the hard age cap.
+    ck_assert_ptr_nonnull(engine.active_match);
+    ck_assert_str_eq(engine.active_match->id, "yn");
+}
+END_TEST
+
+START_TEST(test_tui_redraw_keeps_match_then_clears)
+{
+    /* TUI redraws keep the prompt in the match window. The match stays active
+     * with its age reset on each auto-dismiss check. No dismiss events are
+     * fired during redraws. When the prompt stops being redrawn and leaves
+     * the match window, a single dismiss event fires. */
+    nabtoshell_pattern_engine_select_agent(&engine, "test");
+    feed_string(&engine, "Continue? (y/n)");
+    ck_assert_ptr_nonnull(engine.active_match);
+
+    /* Simulate TUI redraws: interleave prompt with filler. Each round adds
+     * ~2000 chars. The prompt stays in the match window because it's
+     * re-sent on each redraw. Match age is reset, so no force-dismiss. */
+    for (int i = 0; i < 5; i++) {
+        char filler[2100];
+        memset(filler, 'x', 2000);
+        filler[2000] = '\0';
+        feed_string(&engine, filler);
+        feed_string(&engine, "Continue? (y/n)");  /* TUI redraw */
+    }
+    /* Match should still be active (age keeps resetting) */
+    ck_assert_ptr_nonnull(engine.active_match);
+
+    /* Now stop redrawing the prompt and push it out of the match window. */
+    char filler[4200];
+    memset(filler, 'x', 4100);
+    filler[4100] = '\0';
     feed_string(&engine, filler);
 
     ck_assert_ptr_null(engine.active_match);
@@ -109,10 +169,10 @@ START_TEST(test_dismiss_resets_after_new_content)
     feed_string(&engine, "Continue? (y/n)");
     nabtoshell_pattern_engine_dismiss(&engine);
 
-    // Feed enough new content to clear user-dismiss (2000 chars)
-    char filler[2200];
-    memset(filler, 'z', 2100);
-    filler[2100] = '\0';
+    // Feed enough new content to clear user-dismiss (MATCH_WINDOW=4000 chars)
+    char filler[4200];
+    memset(filler, 'z', 4100);
+    filler[4100] = '\0';
     feed_string(&engine, filler);
 
     // Now the pattern should match again
@@ -167,9 +227,9 @@ START_TEST(test_agent_switching)
 
     // prompt-a should not match under agent b
     nabtoshell_pattern_engine_dismiss(&eng2);
-    char filler[2200];
-    memset(filler, 'z', 2100);
-    filler[2100] = '\0';
+    char filler[4200];
+    memset(filler, 'z', 4100);
+    filler[4100] = '\0';
     feed_string(&eng2, filler);
     feed_string(&eng2, "prompt-a");
     ck_assert_ptr_null(eng2.active_match);
@@ -464,6 +524,157 @@ START_TEST(test_utf8_boundary_3byte)
 }
 END_TEST
 
+START_TEST(test_incremental_item_arrival)
+{
+    /* Reproduces the real-world bug: the regex matches as soon as items
+     * 1-2 are visible in the match window, but item 3 hasn't arrived yet
+     * (it's in the next PTY chunk). The initial match fires with 2 actions.
+     * On the next feed (TUI redraw), the age-reset rescan finds 3 items.
+     * The active match must be UPGRADED and a new callback fired. */
+    const char *menu_json =
+        "{"
+        "  \"version\": 1,"
+        "  \"agents\": {"
+        "    \"claude-code\": {"
+        "      \"name\": \"Claude Code\","
+        "      \"patterns\": [{"
+        "        \"id\": \"numbered_prompt\","
+        "        \"type\": \"numbered_menu\","
+        "        \"regex\": \"Do you want to .+\\\\?\\\\n.*1\\\\. .+\\\\n.*2\\\\. .+\","
+        "        \"multi_line\": true,"
+        "        \"action_template\": {\"keys\": \"{number}\"}"
+        "      }]"
+        "    }"
+        "  }"
+        "}";
+
+    nabtoshell_pattern_config *mcfg = nabtoshell_pattern_config_parse(menu_json, strlen(menu_json));
+    nabtoshell_pattern_engine me;
+    nabtoshell_pattern_engine_init(&me);
+    nabtoshell_pattern_engine_load_config(&me, mcfg);
+    nabtoshell_pattern_engine_select_agent(&me, "claude-code");
+
+    /* Fill buffer so the prompt lands near end of match window.
+     * MATCH_WINDOW=4000. Put 3900 chars of filler first. */
+    char filler[3950];
+    memset(filler, 'x', 3900);
+    filler[3900] = '\0';
+    feed_string(&me, filler);
+
+    /* Feed items 1-2 only (item 3 hasn't arrived in this PTY chunk). */
+    feed_string(&me, "Do you want to create bar.txt?\n"
+                     "\xe2\x9d\xaf 1. Yes\n"
+                     "  2. Yes, allow all\n");
+
+    /* Match fires with 2 actions (item 3 not yet in buffer) */
+    ck_assert_ptr_nonnull(me.active_match);
+    ck_assert_str_eq(me.active_match->id, "numbered_prompt");
+    ck_assert_int_eq(me.active_match->action_count, 2);
+
+    /* Simulate TUI redraw: enough filler to trigger age-reset check
+     * (> AUTO_DISMISS=1500), then the full prompt with all 3 items. */
+    char redraw_filler[1600];
+    memset(redraw_filler, 'z', 1550);
+    redraw_filler[1550] = '\0';
+    feed_string(&me, redraw_filler);
+
+    feed_string(&me, "Do you want to create bar.txt?\n"
+                     "\xe2\x9d\xaf 1. Yes\n"
+                     "  2. Yes, allow all\n"
+                     "  3. No\n");
+
+    /* After age-reset rescan with upgrade, match should have 3 actions */
+    ck_assert_ptr_nonnull(me.active_match);
+    ck_assert_int_eq(me.active_match->action_count, 3);
+
+    nabtoshell_pattern_engine_free(&me);
+    nabtoshell_pattern_config_free(mcfg);
+}
+END_TEST
+
+START_TEST(test_duplicate_prompt_uses_latest)
+{
+    /* When auto-dismiss fires and then a new match is found, the match
+     * window may contain two prompt copies (old partial + new complete).
+     * The matcher must use the LAST occurrence to get the most items. */
+    const char *menu_json =
+        "{"
+        "  \"version\": 1,"
+        "  \"agents\": {"
+        "    \"claude-code\": {"
+        "      \"name\": \"Claude Code\","
+        "      \"patterns\": [{"
+        "        \"id\": \"numbered_prompt\","
+        "        \"type\": \"numbered_menu\","
+        "        \"regex\": \"Do you want to .+\\\\?\\\\n.*1\\\\. .+\\\\n.*2\\\\. .+\","
+        "        \"multi_line\": true,"
+        "        \"action_template\": {\"keys\": \"{number}\"}"
+        "      }]"
+        "    }"
+        "  }"
+        "}";
+
+    nabtoshell_pattern_config *mcfg = nabtoshell_pattern_config_parse(menu_json, strlen(menu_json));
+    nabtoshell_pattern_engine me;
+    nabtoshell_pattern_engine_init(&me);
+    nabtoshell_pattern_engine_load_config(&me, mcfg);
+    nabtoshell_pattern_engine_select_agent(&me, "claude-code");
+
+    /* Feed a complete 3-item prompt. */
+    feed_string(&me, "Do you want to create bar.txt?\n"
+                     "\xe2\x9d\xaf 1. Yes\n"
+                     "  2. Yes, allow all\n"
+                     "  3. No\n");
+    ck_assert_ptr_nonnull(me.active_match);
+    ck_assert_int_eq(me.active_match->action_count, 3);
+
+    /* Push enough filler to trigger auto-dismiss (>1500) and then
+     * another complete prompt, but also push the old match past the
+     * scan window so auto-dismiss fires. Total filler > MATCH_WINDOW. */
+    char filler[4200];
+    memset(filler, 'x', 4100);
+    filler[4100] = '\0';
+    feed_string(&me, filler);
+
+    /* Old match should be auto-dismissed. */
+    ck_assert_ptr_null(me.active_match);
+
+    /* Now feed a partial prompt (2 items) followed by a complete one (3 items).
+     * Both are within the match window. The matcher must prefer the last. */
+    feed_string(&me, "Do you want to create bar.txt?\n"
+                     "\xe2\x9d\xaf 1. Yes\n"
+                     "  2. Yes, allow all\n");
+
+    /* This might match with 2 or 3 depending on whether item 3 is there yet.
+     * We allow 2 here since only 2 items were fed. */
+    ck_assert_ptr_nonnull(me.active_match);
+    ck_assert_int_ge(me.active_match->action_count, 2);
+
+    /* Now simulate: auto-dismiss the partial, then feed 2-item + 3-item in window. */
+    memset(filler, 'y', 4100);
+    filler[4100] = '\0';
+    feed_string(&me, filler);
+    ck_assert_ptr_null(me.active_match);
+
+    /* Both prompts in a single feed: old 2-item then new 3-item. */
+    feed_string(&me, "Do you want to create bar.txt?\n"
+                     "\xe2\x9d\xaf 1. Yes\n"
+                     "  2. Yes, allow all\n"
+                     "some filler between prompts\n"
+                     "Do you want to create bar.txt?\n"
+                     "\xe2\x9d\xaf 1. Yes\n"
+                     "  2. Yes, allow all\n"
+                     "  3. No\n");
+
+    /* Must find 3 actions from the last prompt copy, not 2 from the first. */
+    ck_assert_ptr_nonnull(me.active_match);
+    ck_assert_int_eq(me.active_match->action_count, 3);
+
+    nabtoshell_pattern_engine_free(&me);
+    nabtoshell_pattern_config_free(mcfg);
+}
+END_TEST
+
 Suite *pattern_engine_suite(void)
 {
     Suite *s = suite_create("PatternEngine");
@@ -473,6 +684,8 @@ Suite *pattern_engine_suite(void)
     tcase_add_test(tc, test_full_pipeline);
     tcase_add_test(tc, test_no_match_without_agent);
     tcase_add_test(tc, test_auto_dismiss);
+    tcase_add_test(tc, test_auto_dismiss_keeps_match_in_buffer);
+    tcase_add_test(tc, test_tui_redraw_keeps_match_then_clears);
     tcase_add_test(tc, test_manual_dismiss);
     tcase_add_test(tc, test_dismiss_resets_after_new_content);
     tcase_add_test(tc, test_agent_switching);
@@ -487,6 +700,8 @@ Suite *pattern_engine_suite(void)
     tcase_add_test(tc, test_full_pipeline_with_newlines_and_colors);
     tcase_add_test(tc, test_utf8_boundary_2byte);
     tcase_add_test(tc, test_utf8_boundary_3byte);
+    tcase_add_test(tc, test_incremental_item_arrival);
+    tcase_add_test(tc, test_duplicate_prompt_uses_latest);
 
     suite_add_tcase(s, tc);
     return s;

@@ -1,7 +1,6 @@
 #include "nabtoshell_pattern_matcher.h"
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include <ctype.h>
 
 void nabtoshell_pattern_matcher_init(nabtoshell_pattern_matcher *m)
@@ -182,7 +181,40 @@ static void extract_menu_items(const nabtoshell_pattern_matcher *m,
     if (!menu_re) return;
 
     pcre2_match_data *md = pcre2_match_data_create_from_pattern(menu_re, NULL);
-    PCRE2_SIZE offset = 0;
+
+    // Pass 1: find the offset of the LAST "1." item in the text.
+    // TUI redraws can leave multiple prompt copies in the buffer.
+    // The last sequence is the most recent and most complete.
+    PCRE2_SIZE last_item1_offset = 0;
+    bool found_any = false;
+    {
+        PCRE2_SIZE scan = 0;
+        while (scan < text_len) {
+            int rc = pcre2_match(menu_re, (PCRE2_SPTR)text, text_len, scan, 0, md, NULL);
+            if (rc < 0) break;
+            PCRE2_SIZE *ov = pcre2_get_ovector_pointer(md);
+            size_t ns = ov[2], ne = ov[3];
+            char nb[16];
+            size_t nl = ne - ns;
+            if (nl >= sizeof(nb)) nl = sizeof(nb) - 1;
+            memcpy(nb, text + ns, nl);
+            nb[nl] = '\0';
+            if (atoi(nb) == 1) {
+                last_item1_offset = ov[0];
+                found_any = true;
+            }
+            scan = ov[1];
+        }
+    }
+
+    if (!found_any) {
+        pcre2_match_data_free(md);
+        pcre2_code_free(menu_re);
+        return;
+    }
+
+    // Pass 2: extract sequential items starting from the last "1."
+    PCRE2_SIZE offset = last_item1_offset;
     int expected_number = 1;
 
     while (offset < text_len && out->action_count < PATTERN_MATCHER_MAX_ACTIONS) {

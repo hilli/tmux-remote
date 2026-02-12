@@ -1,6 +1,13 @@
 import Foundation
 import SwiftCBOR
 
+/// Decoded control stream event from agent.
+enum ControlStreamEvent {
+    case sessions([SessionInfo])
+    case patternMatch(PatternMatch)
+    case patternDismiss
+}
+
 enum CBORHelpers {
 
     // MARK: - Encoding
@@ -35,6 +42,19 @@ enum CBORHelpers {
         return Data(cbor.encode())
     }
 
+    /// Encode a pattern dismiss as a length-prefixed CBOR message
+    /// for sending back to the agent on the control stream.
+    static func encodePatternDismiss() -> Data {
+        let cbor: CBOR = .map([
+            .utf8String("type"): .utf8String("pattern_dismiss")
+        ])
+        let payload = Data(cbor.encode())
+        var lengthPrefix = Data(count: 4)
+        let len = UInt32(payload.count).bigEndian
+        withUnsafeBytes(of: len) { lengthPrefix.replaceSubrange(0..<4, with: $0) }
+        return lengthPrefix + payload
+    }
+
     // MARK: - Decoding
 
     /// Decode a control stream message: CBOR map with "sessions" key.
@@ -44,6 +64,73 @@ enum CBORHelpers {
         guard case .map(let outerMap) = decoded else { return [] }
         guard case .array(let items) = outerMap[.utf8String("sessions")] else { return [] }
         return decodeSessionArray(items)
+    }
+
+    /// Decode a control stream event: sessions update, pattern match, or pattern dismiss.
+    static func decodeControlStreamEvent(from data: Data) -> ControlStreamEvent? {
+        guard let decoded = try? CBOR.decode([UInt8](data)) else { return nil }
+        guard case .map(let outerMap) = decoded else { return nil }
+
+        // Check for "type" key (pattern events)
+        if case .utf8String(let typeStr) = outerMap[.utf8String("type")] {
+            switch typeStr {
+            case "pattern_match":
+                return decodePatternMatch(outerMap)
+            case "pattern_dismiss":
+                return .patternDismiss
+            default:
+                return nil
+            }
+        }
+
+        // No "type" key: legacy sessions message
+        if case .array(let items) = outerMap[.utf8String("sessions")] {
+            return .sessions(decodeSessionArray(items))
+        }
+
+        return nil
+    }
+
+    private static func decodePatternMatch(_ map: [CBOR: CBOR]) -> ControlStreamEvent? {
+        guard case .utf8String(let patternId) = map[.utf8String("pattern_id")] else { return nil }
+        guard case .utf8String(let typeStr) = map[.utf8String("pattern_type")] else { return nil }
+
+        let patternType: PatternType
+        switch typeStr {
+        case "yes_no": patternType = .yesNo
+        case "numbered_menu": patternType = .numberedMenu
+        case "accept_reject": patternType = .acceptReject
+        default: return nil
+        }
+
+        let prompt: String?
+        if case .utf8String(let p) = map[.utf8String("prompt")] {
+            prompt = p
+        } else {
+            prompt = nil
+        }
+
+        var actions: [ResolvedAction] = []
+        if case .array(let items) = map[.utf8String("actions")] {
+            for item in items {
+                guard case .map(let actionMap) = item else { continue }
+                guard case .utf8String(let label) = actionMap[.utf8String("label")] else { continue }
+                guard case .utf8String(let keys) = actionMap[.utf8String("keys")] else { continue }
+                actions.append(ResolvedAction(label: label, keys: keys))
+            }
+        }
+
+        guard !actions.isEmpty else { return nil }
+
+        let match = PatternMatch(
+            id: patternId,
+            patternType: patternType,
+            prompt: prompt,
+            matchedText: "",
+            actions: actions,
+            matchPosition: 0
+        )
+        return .patternMatch(match)
     }
 
     static func decodeSessions(from data: Data) -> [SessionInfo] {

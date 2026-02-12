@@ -167,6 +167,23 @@ nabtoshell_pattern_match* nabtoshell_stream_copy_active_match_for_ref(
     return result;
 }
 
+void nabtoshell_stream_dismiss_pattern_for_ref(
+    struct nabtoshell_stream_listener* sl,
+    NabtoDeviceConnectionRef ref)
+{
+    pthread_mutex_lock(&sl->activeStreamsMutex);
+    struct nabtoshell_active_stream* as = sl->activeStreams;
+    while (as != NULL) {
+        if (!atomic_load(&as->closing) && as->patternEngineInitialized &&
+            as->connectionRef == ref) {
+            nabtoshell_pattern_engine_dismiss(&as->patternEngine);
+            break;
+        }
+        as = as->next;
+    }
+    pthread_mutex_unlock(&sl->activeStreamsMutex);
+}
+
 int nabtoshell_stream_get_pty_fd(struct nabtoshell_stream_listener* sl,
                                  NabtoDeviceConnectionRef ref)
 {
@@ -287,9 +304,13 @@ static void pattern_stream_callback(const nabtoshell_pattern_match* match,
 {
     struct nabtoshell_active_stream* as = user_data;
     if (match != NULL) {
+        printf("[Pattern] pattern_stream_callback: match id=%s, type=%d, actions=%d, ref=%u" NEWLINE,
+               match->id, match->pattern_type, match->action_count, (unsigned)as->connectionRef);
         nabtoshell_control_stream_send_pattern_match_for_ref(
             &as->app->controlStreamListener, as->connectionRef, match);
     } else {
+        printf("[Pattern] pattern_stream_callback: dismiss, ref=%u" NEWLINE,
+               (unsigned)as->connectionRef);
         nabtoshell_control_stream_send_pattern_dismiss_for_ref(
             &as->app->controlStreamListener, as->connectionRef);
     }

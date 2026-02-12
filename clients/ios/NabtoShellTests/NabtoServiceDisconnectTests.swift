@@ -6,6 +6,7 @@ import XCTest
 /// These tests verify the fix for the stale-connection bug where an orphaned
 /// reconnect task (triggered by onChange when disconnect sets state to .disconnected)
 /// kept interfering with subsequent connection attempts.
+@MainActor
 final class NabtoServiceDisconnectTests: XCTestCase {
 
     private func makeBookmark(deviceId: String = "de-test") -> DeviceBookmark {

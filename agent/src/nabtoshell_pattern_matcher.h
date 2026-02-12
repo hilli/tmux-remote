@@ -52,4 +52,7 @@ nabtoshell_pattern_match *nabtoshell_pattern_matcher_match(
 
 void nabtoshell_pattern_match_free(nabtoshell_pattern_match *match);
 
+// Deep copy a match. Returns NULL if src is NULL. Caller must free with _match_free.
+nabtoshell_pattern_match *nabtoshell_pattern_match_copy(const nabtoshell_pattern_match *src);
+
 #endif

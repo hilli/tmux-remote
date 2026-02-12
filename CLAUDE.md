@@ -147,3 +147,7 @@ The Nabto core runs its own event loop thread. All future callbacks execute on t
 - Do not enable open pairing modes by default. Security posture: low probability, catastrophic impact.
 - Do not skip IAM checks on any endpoint. Even GET /terminal/status requires authentication.
 - Do not frame the stream data. It is a raw byte pipe, same as SSH.
+
+# Ground rules for debugging
+
+Never, ever start fixing or say "root cause found!" based on just speculation. Always act as an experienced senior engineer, gathering proof through instrumentation and/or tests: Reproduce problems to the extent possible using integration tests. Add stubs and drivers as necessary, executing as long code paths as possible in attempts to reproduce problems. If not possible to reproduce, tell me so instead of speculating about cause. Explain that you cannot reproduce and your instrumentation is not enough and I need to help. Then suggest where you can add further instrumentation and ask me to run manual test to reproduce the problem to allow you gather the instrumentation output. When you have this test and instrumentation supported insight, THEN you can deduce a root cause and make a plan from fixing. BUT ONLY THEN.

@@ -21,6 +21,8 @@ struct nabtoshell_active_control_stream {
     atomic_bool needsPatternSync;
     NabtoDeviceConnectionRef connectionRef;
     atomic_uint refCount;
+    pthread_t readerThread;
+    bool readerThreadStarted;
     struct nabtoshell_active_control_stream* next;
 };
 

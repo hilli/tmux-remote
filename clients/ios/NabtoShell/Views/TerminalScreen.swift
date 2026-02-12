@@ -8,6 +8,7 @@ struct TerminalScreen: View {
     let bookmarkStore: BookmarkStore
 
     @State private var bridge = TerminalBridge()
+    @State private var patternEngine = PatternEngine()
     @State private var currentCols: Int = 80
     @State private var currentRows: Int = 24
     @State private var errorMessage: String?
@@ -18,6 +19,9 @@ struct TerminalScreen: View {
     @State private var isReconnecting = false
     @State private var isDismissing = false
     @State private var connectTask: Task<Void, Never>?
+    #if DEBUG
+    @State private var lastSentKeys: String = ""
+    #endif
     @Environment(\.scenePhase) private var scenePhase
     let onDismiss: () -> Void
 
@@ -45,6 +49,7 @@ struct TerminalScreen: View {
                 }
             )
             .ignoresSafeArea(.container, edges: .bottom)
+            .allowsHitTesting(patternEngine.activeMatch == nil)
             .accessibilityIdentifier("terminal-view")
 
             VStack {
@@ -70,12 +75,52 @@ struct TerminalScreen: View {
 
                     Spacer()
 
+                    agentPill
+                        .padding(.top, 8)
+
                     connectionPill
                         .padding(.trailing, 12)
                         .padding(.top, 8)
                 }
                 Spacer()
             }
+
+            if let match = patternEngine.activeMatch {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .accessibilityIdentifier("pattern-overlay-backdrop")
+                VStack {
+                    Spacer()
+                    PatternOverlayView(
+                        match: match,
+                        onAction: { action in
+                            #if DEBUG
+                            lastSentKeys = action.keys
+                            #endif
+                            nabtoService.writeToStream(Data(action.keys.utf8))
+                            patternEngine.dismiss()
+                            connectionManager.sendPatternDismiss(deviceId: bookmark.deviceId)
+                        },
+                        onDismiss: {
+                            patternEngine.dismiss()
+                            connectionManager.sendPatternDismiss(deviceId: bookmark.deviceId)
+                        }
+                    )
+                }
+                .transition(.move(edge: .bottom))
+                .animation(.easeInOut(duration: 0.2), value: patternEngine.activeMatch != nil)
+            }
+
+            #if DEBUG
+            Text(lastSentKeys)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityIdentifier("debug-sent-keys")
+            Text("agent:\(patternEngine.activeAgent ?? "nil") match:\(patternEngine.activeMatch?.id ?? "nil") err:\(showError) done:\(initialConnectionDone)")
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityIdentifier("debug-pattern-state")
+            #endif
 
             if isReconnecting {
                 reconnectOverlay
@@ -85,6 +130,16 @@ struct TerminalScreen: View {
         .navigationBarHidden(true)
         .task(id: isTerminalReady) {
             guard isTerminalReady, !isConnecting, !initialConnectionDone, !isDismissing else { return }
+            if let config = PatternConfigLoader.loadBundled() {
+                patternEngine.loadConfig(config)
+            }
+            patternEngine.setDeviceId(bookmark.deviceId)
+            #if DEBUG
+            if let idx = ProcessInfo.processInfo.arguments.firstIndex(of: "--stub-agent"),
+               idx + 1 < ProcessInfo.processInfo.arguments.count {
+                patternEngine.selectAgent(ProcessInfo.processInfo.arguments[idx + 1])
+            }
+            #endif
             isConnecting = true
             let task = Task {
                 await connectAndAttach()
@@ -99,6 +154,7 @@ struct TerminalScreen: View {
         }
         .onDisappear {
             isDismissing = true
+            connectionManager.onPatternEvent = nil
             teardownTransientTasks()
             nabtoService.disableReconnectContext()
             nabtoService.disconnect(keepConnection: true)
@@ -127,6 +183,42 @@ struct TerminalScreen: View {
         } message: {
             Text(errorMessage ?? "Unknown error")
         }
+    }
+
+    @ViewBuilder
+    private var agentPill: some View {
+        Menu {
+            Button(patternEngine.activeAgent == nil ? "Off (selected)" : "Off") {
+                patternEngine.selectAgent(nil)
+            }
+            ForEach(patternEngine.availableAgents, id: \.id) { agent in
+                let selected = patternEngine.activeAgent == agent.id
+                Button(selected ? "\(agent.name) (selected)" : agent.name) {
+                    patternEngine.selectAgent(agent.id)
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "wand.and.stars")
+                Text(agentPillLabel)
+            }
+            .font(.caption2)
+            .fontWeight(.medium)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.purple.opacity(patternEngine.activeAgent != nil ? 0.85 : 0.4))
+            .foregroundColor(.white)
+            .clipShape(Capsule())
+        }
+        .accessibilityIdentifier("agent-pill")
+    }
+
+    private var agentPillLabel: String {
+        guard let agentId = patternEngine.activeAgent,
+              let config = patternEngine.availableAgents.first(where: { $0.id == agentId }) else {
+            return "Agent"
+        }
+        return config.name
     }
 
     @ViewBuilder
@@ -161,6 +253,7 @@ struct TerminalScreen: View {
 
     private func dismissToDevices() {
         isDismissing = true
+        connectionManager.onPatternEvent = nil
         teardownTransientTasks()
         nabtoService.disableReconnectContext()
         nabtoService.disconnect(keepConnection: true)
@@ -181,6 +274,28 @@ struct TerminalScreen: View {
         nabtoService.onStreamClosed = { [self] in
             guard nabtoService.canAutoReconnect(deviceId: bookmark.deviceId, session: sessionName) else { return }
             handleStreamClosed()
+        }
+        connectionManager.onPatternEvent = { [weak patternEngine] deviceId, event in
+            let isMyDevice = deviceId == bookmark.deviceId
+            switch event {
+            case .patternMatch(let match):
+                AppLog.log("onPatternEvent: patternMatch id=%@, deviceMatch=%d, engineAlive=%d",
+                           match.id, isMyDevice ? 1 : 0, patternEngine != nil ? 1 : 0)
+            case .patternDismiss:
+                AppLog.log("onPatternEvent: patternDismiss, deviceMatch=%d, engineAlive=%d",
+                           isMyDevice ? 1 : 0, patternEngine != nil ? 1 : 0)
+            case .sessions:
+                break
+            }
+            guard isMyDevice else { return }
+            switch event {
+            case .patternMatch(let match):
+                patternEngine?.applyServerMatch(match)
+            case .patternDismiss:
+                patternEngine?.applyServerDismiss()
+            case .sessions:
+                break
+            }
         }
     }
 
@@ -256,6 +371,7 @@ struct TerminalScreen: View {
         guard state != .connected || nabtoService.currentSession == nil else {
             return
         }
+        patternEngine.reset()
         isReconnecting = true
         nabtoService.attemptReconnect(
             bookmark: bookmark,
@@ -277,6 +393,7 @@ struct TerminalScreen: View {
             return
         }
         guard !isReconnecting else { return }
+        patternEngine.reset()
         isReconnecting = true
         nabtoService.attemptReconnect(
             bookmark: bookmark,

@@ -35,10 +35,11 @@ enum NabtoError: Error, LocalizedError {
     }
 }
 
+@MainActor
 @Observable
 class NabtoService {
-    private(set) var currentDeviceId: String?
-    private(set) var currentSession: String?
+    var currentDeviceId: String?
+    var currentSession: String?
 
     private let connectionManager: ConnectionManager
     private let bookmarkStore: BookmarkStore
@@ -286,14 +287,10 @@ class NabtoService {
                 do {
                     let data = try await stream.readSomeAsync()
                     let bytes = [UInt8](data)
-                    await MainActor.run {
-                        self.onStreamData?(bytes)
-                    }
+                    self.onStreamData?(bytes)
                 } catch {
                     if !Task.isCancelled {
-                        await MainActor.run {
-                            self.onStreamClosed?()
-                        }
+                        self.onStreamClosed?()
                     }
                     break
                 }
@@ -321,19 +318,15 @@ class NabtoService {
                     return
                 }
                 attempt += 1
-                await MainActor.run {
-                    self.connectionManager.setDeviceState(.reconnecting(attempt: attempt), for: bookmark.deviceId)
-                }
+                self.connectionManager.setDeviceState(.reconnecting(attempt: attempt), for: bookmark.deviceId)
 
                 let elapsed = Date().timeIntervalSince(startTime)
                 if self.reconnectLogic.shouldGiveUp(elapsedTime: elapsed) {
                     guard self.canAutoReconnect(deviceId: bookmark.deviceId, session: session) else {
                         return
                     }
-                    await MainActor.run {
-                        self.connectionManager.setDeviceState(.offline, for: bookmark.deviceId)
-                        onGiveUp?()
-                    }
+                    self.connectionManager.setDeviceState(.offline, for: bookmark.deviceId)
+                    onGiveUp?()
                     return
                 }
 
@@ -347,18 +340,14 @@ class NabtoService {
                         self.connectionManager.disconnect(deviceId: bookmark.deviceId)
                         return
                     }
-                    await MainActor.run {
-                        onSuccess?()
-                    }
+                    onSuccess?()
                     return
                 } catch is CancellationError {
                     return
                 } catch let error as NabtoError where error.isSessionNotFound {
                     // Session was destroyed; retrying will never succeed.
-                    await MainActor.run {
-                        self.connectionManager.setDeviceState(.offline, for: bookmark.deviceId)
-                        onGiveUp?()
-                    }
+                    self.connectionManager.setDeviceState(.offline, for: bookmark.deviceId)
+                    onGiveUp?()
                     return
                 } catch {
                     if Task.isCancelled || !self.canAutoReconnect(deviceId: bookmark.deviceId, session: session) {

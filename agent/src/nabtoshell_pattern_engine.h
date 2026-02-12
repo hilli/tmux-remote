@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #include "nabtoshell_ansi_stripper.h"
 #include "nabtoshell_rolling_buffer.h"
@@ -11,8 +12,8 @@
 #include "nabtoshell_pattern_config.h"
 
 #define PATTERN_ENGINE_BUFFER_CAPACITY  8192
-#define PATTERN_ENGINE_MATCH_WINDOW     2000
-#define PATTERN_ENGINE_AUTO_DISMISS     80
+#define PATTERN_ENGINE_MATCH_WINDOW     4000
+#define PATTERN_ENGINE_AUTO_DISMISS     1500
 
 // Callback when a match changes (new match found, match dismissed, etc.)
 // match is NULL when dismissed. Ownership NOT transferred; copy if needed.
@@ -31,6 +32,8 @@ typedef struct {
     bool dismissed;
     bool user_dismissed;
     size_t dismissed_at_position;
+
+    pthread_mutex_t mutex;
 
     nabtoshell_pattern_engine_callback on_change;
     void *on_change_user_data;
@@ -62,5 +65,9 @@ void nabtoshell_pattern_engine_set_callback(nabtoshell_pattern_engine *e,
 // Auto-detect agent from initial terminal output.
 void nabtoshell_pattern_engine_auto_detect(nabtoshell_pattern_engine *e,
                                             const char *text, size_t len);
+
+// Thread-safe: returns a deep copy of active_match (or NULL). Caller must free.
+nabtoshell_pattern_match *nabtoshell_pattern_engine_copy_active_match(
+    nabtoshell_pattern_engine *e);
 
 #endif
