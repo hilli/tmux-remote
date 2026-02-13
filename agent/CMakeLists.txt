@@ -122,8 +122,10 @@ if(CHECK_FOUND)
   target_compile_definitions(test_pattern_routing PRIVATE NABTOSHELL_TESTING)
   add_test(NAME pattern_routing COMMAND test_pattern_routing)
 
-  # Test: PTY Replay (diagnostic; skips gracefully without PTY_RECORDING env var)
+  # Test: PTY Replay
   add_executable(test_pty_replay tests/test_pty_replay.c)
   target_link_libraries(test_pty_replay nabtoshell_pattern PkgConfig::CHECK)
+  target_compile_definitions(test_pty_replay PRIVATE
+    TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
   add_test(NAME pty_replay COMMAND test_pty_replay)
 endif()

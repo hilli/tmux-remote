@@ -675,6 +675,104 @@ START_TEST(test_duplicate_prompt_uses_latest)
 }
 END_TEST
 
+START_TEST(test_consume_suppresses_same_prompt)
+{
+    /* Consume clears the active match and remembers the consumed prompt.
+     * Re-feeding the SAME prompt should be suppressed (TUI redraw after
+     * user acted). A DIFFERENT prompt should match immediately. */
+    nabtoshell_pattern_engine_select_agent(&engine, "test");
+    feed_string(&engine, "Continue? (y/n)");
+    ck_assert_ptr_nonnull(engine.active_match);
+
+    nabtoshell_pattern_engine_consume(&engine);
+    ck_assert_ptr_null(engine.active_match);
+
+    /* Re-feed the same prompt: must be suppressed. */
+    feed_string(&engine, "Continue? (y/n)");
+    ck_assert_ptr_null(engine.active_match);
+
+    /* After enough new content (> MATCH_WINDOW), suppression expires. */
+    char filler[4200];
+    memset(filler, 'z', 4100);
+    filler[4100] = '\0';
+    feed_string(&engine, filler);
+
+    feed_string(&engine, "Continue? (y/n)");
+    ck_assert_ptr_nonnull(engine.active_match);
+    ck_assert_str_eq(engine.active_match->id, "yn");
+}
+END_TEST
+
+START_TEST(test_consume_allows_different_prompt)
+{
+    /* After consume, a DIFFERENT prompt must match immediately (no cooldown
+     * like dismiss). Only the same prompt is suppressed. */
+    const char *two_json =
+        "{"
+        "  \"version\": 1,"
+        "  \"agents\": {"
+        "    \"test\": {"
+        "      \"name\": \"Test\","
+        "      \"patterns\": [{"
+        "        \"id\": \"yn\","
+        "        \"type\": \"yes_no\","
+        "        \"regex\": \"Continue\\\\? \\\\(y/n\\\\)\","
+        "        \"actions\": ["
+        "          {\"label\": \"Yes\", \"keys\": \"y\"},"
+        "          {\"label\": \"No\", \"keys\": \"n\"}"
+        "        ]"
+        "      },{"
+        "        \"id\": \"ar\","
+        "        \"type\": \"accept_reject\","
+        "        \"regex\": \"Accept\\\\? \\\\(y/n\\\\)\","
+        "        \"actions\": ["
+        "          {\"label\": \"Accept\", \"keys\": \"y\"},"
+        "          {\"label\": \"Reject\", \"keys\": \"n\"}"
+        "        ]"
+        "      }]"
+        "    }"
+        "  }"
+        "}";
+
+    nabtoshell_pattern_config *cfg2 = nabtoshell_pattern_config_parse(two_json, strlen(two_json));
+    nabtoshell_pattern_engine eng2;
+    nabtoshell_pattern_engine_init(&eng2);
+    nabtoshell_pattern_engine_load_config(&eng2, cfg2);
+    nabtoshell_pattern_engine_select_agent(&eng2, "test");
+
+    feed_string(&eng2, "Continue? (y/n)");
+    ck_assert_ptr_nonnull(eng2.active_match);
+    ck_assert_str_eq(eng2.active_match->id, "yn");
+
+    nabtoshell_pattern_engine_consume(&eng2);
+    ck_assert_ptr_null(eng2.active_match);
+
+    /* Feed a different prompt immediately: must match. */
+    feed_string(&eng2, "Accept? (y/n)");
+    ck_assert_ptr_nonnull(eng2.active_match);
+    ck_assert_str_eq(eng2.active_match->id, "ar");
+
+    nabtoshell_pattern_engine_free(&eng2);
+    nabtoshell_pattern_config_free(cfg2);
+}
+END_TEST
+
+START_TEST(test_consume_no_cooldown_fields)
+{
+    /* After consume(), the cooldown fields (dismissed, user_dismissed,
+     * dismissed_at_position) must NOT be set. This is the key difference
+     * from dismiss(). */
+    nabtoshell_pattern_engine_select_agent(&engine, "test");
+    feed_string(&engine, "Continue? (y/n)");
+    ck_assert_ptr_nonnull(engine.active_match);
+
+    nabtoshell_pattern_engine_consume(&engine);
+    ck_assert(!engine.dismissed);
+    ck_assert(!engine.user_dismissed);
+    ck_assert_uint_eq(engine.dismissed_at_position, 0);
+}
+END_TEST
+
 START_TEST(test_consume_then_new_prompt)
 {
     /* Reproduces the bug from pty-log-1: first prompt matches, user acts
@@ -863,6 +961,9 @@ Suite *pattern_engine_suite(void)
     tcase_add_test(tc, test_utf8_boundary_3byte);
     tcase_add_test(tc, test_incremental_item_arrival);
     tcase_add_test(tc, test_duplicate_prompt_uses_latest);
+    tcase_add_test(tc, test_consume_suppresses_same_prompt);
+    tcase_add_test(tc, test_consume_allows_different_prompt);
+    tcase_add_test(tc, test_consume_no_cooldown_fields);
     tcase_add_test(tc, test_consume_then_new_prompt);
     tcase_add_test(tc, test_consume_no_dismiss_short_gap);
 

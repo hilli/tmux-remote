@@ -49,6 +49,9 @@ void nabtoshell_pattern_engine_init(nabtoshell_pattern_engine *e)
     e->dismissed = false;
     e->user_dismissed = false;
     e->dismissed_at_position = 0;
+    e->consumed_match = NULL;
+    e->consumed_at_position = 0;
+    e->consumed_last_seen = 0;
     e->on_change = NULL;
     e->on_change_user_data = NULL;
     pthread_mutex_init(&e->mutex, NULL);
@@ -59,6 +62,7 @@ void nabtoshell_pattern_engine_free(nabtoshell_pattern_engine *e)
     nabtoshell_pattern_matcher_reset(&e->matcher);
     nabtoshell_rolling_buffer_free(&e->buffer);
     nabtoshell_pattern_match_free(e->active_match);
+    nabtoshell_pattern_match_free(e->consumed_match);
     free(e->active_agent);
     pthread_mutex_destroy(&e->mutex);
     // config is not owned by engine
@@ -80,6 +84,9 @@ void nabtoshell_pattern_engine_reset(nabtoshell_pattern_engine *e)
     e->dismissed = false;
     e->user_dismissed = false;
     e->dismissed_at_position = 0;
+    nabtoshell_pattern_match_free(e->consumed_match);
+    e->consumed_match = NULL;
+    e->consumed_at_position = 0;
     pthread_mutex_unlock(&e->mutex);
 
     if (should_notify && e->on_change) {
@@ -116,6 +123,9 @@ void nabtoshell_pattern_engine_select_agent(nabtoshell_pattern_engine *e,
     nabtoshell_pattern_match_free(e->active_match);
     e->active_match = NULL;
     e->dismissed = false;
+    nabtoshell_pattern_match_free(e->consumed_match);
+    e->consumed_match = NULL;
+    e->consumed_at_position = 0;
 
     if (!agent_id) {
         e->active_agent = NULL;
@@ -340,6 +350,22 @@ void nabtoshell_pattern_engine_feed(nabtoshell_pattern_engine *e,
         }
     }
 
+    // Expire consumed_match suppression when the consumed prompt has not
+    // been seen in a scan for AUTO_DISMISS chars. This handles both:
+    //   - TUI redraws (prompt stays visible, consumed_last_seen keeps
+    //     updating, suppression holds)
+    //   - Genuine new identical prompt (old prompt leaves buffer,
+    //     consumed_last_seen stops updating, suppression clears)
+    if (e->consumed_match) {
+        size_t chars_since_seen = e->buffer.total_appended - e->consumed_last_seen;
+        if (chars_since_seen > PATTERN_ENGINE_AUTO_DISMISS) {
+            PATTERN_LOG("[Pattern] consumed_match expired: last_seen=%zu, now=%zu, gap=%zu\n",
+                        e->consumed_last_seen, e->buffer.total_appended, chars_since_seen);
+            nabtoshell_pattern_match_free(e->consumed_match);
+            e->consumed_match = NULL;
+        }
+    }
+
     // Reset dismissed flag if enough new content arrived
     if (e->dismissed) {
         size_t chars_since_dismiss = e->buffer.total_appended - e->dismissed_at_position;
@@ -358,11 +384,67 @@ void nabtoshell_pattern_engine_feed(nabtoshell_pattern_engine *e,
         PATTERN_LOG("[Pattern] try-new-match: tail_len=%zu, total=%zu, result=%s\n",
                     tail_len, e->buffer.total_appended, new_match ? new_match->id : "NULL");
         if (new_match) {
-            PATTERN_LOG("[Pattern] engine_feed: new match id=%s, type=%d, actions=%d" NEWLINE,
-                        new_match->id, new_match->pattern_type, new_match->action_count);
-            e->active_match = new_match;
-            should_notify = true;
-            notify_copy = nabtoshell_pattern_match_copy(e->active_match);
+            if (e->consumed_match && match_same_prompt(new_match, e->consumed_match)) {
+                /* Same prompt as the one the user just acted on (TUI redraw).
+                 * Suppress to avoid the overlay reappearing.
+                 *
+                 * Update consumed_last_seen only if the prompt appears in
+                 * RECENT data (since last_seen). This distinguishes TUI
+                 * redraws (prompt actively re-sent) from stale buffer
+                 * matches (old prompt still in the full match window). */
+                PATTERN_LOG("[Pattern] engine_feed: suppressed re-match of consumed prompt id=%s" NEWLINE,
+                            new_match->id);
+                size_t since_last_seen = e->buffer.total_appended - e->consumed_last_seen;
+                if (since_last_seen > 0) {
+                    size_t recent_len;
+                    const char *recent = nabtoshell_rolling_buffer_tail(
+                        &e->buffer, since_last_seen, &recent_len);
+                    nabtoshell_pattern_match *recent_check =
+                        nabtoshell_pattern_matcher_match(&e->matcher, recent, recent_len,
+                                                         e->buffer.total_appended);
+                    if (recent_check && match_same_prompt(recent_check, e->consumed_match)) {
+                        e->consumed_last_seen = e->buffer.total_appended;
+                        PATTERN_LOG("[Pattern] consumed_last_seen updated (TUI redraw): %zu\n",
+                                    e->consumed_last_seen);
+                    }
+                    nabtoshell_pattern_match_free(recent_check);
+                }
+                nabtoshell_pattern_match_free(new_match);
+                new_match = NULL;
+
+                /* Scan only data since consume for a different prompt. */
+                size_t since_consume = e->buffer.total_appended - e->consumed_at_position;
+                if (since_consume > 0 && since_consume < PATTERN_ENGINE_MATCH_WINDOW) {
+                    size_t recent_len;
+                    const char *recent = nabtoshell_rolling_buffer_tail(
+                        &e->buffer, since_consume, &recent_len);
+                    nabtoshell_pattern_match *recent_match =
+                        nabtoshell_pattern_matcher_match(&e->matcher, recent, recent_len,
+                                                         e->buffer.total_appended);
+                    if (recent_match && !match_same_prompt(recent_match, e->consumed_match)) {
+                        PATTERN_LOG("[Pattern] engine_feed: different prompt after consume id=%s" NEWLINE,
+                                    recent_match->id);
+                        nabtoshell_pattern_match_free(e->consumed_match);
+                        e->consumed_match = NULL;
+                        e->active_match = recent_match;
+                        should_notify = true;
+                        notify_copy = nabtoshell_pattern_match_copy(e->active_match);
+                    } else {
+                        nabtoshell_pattern_match_free(recent_match);
+                    }
+                }
+            } else {
+                PATTERN_LOG("[Pattern] engine_feed: new match id=%s, type=%d, actions=%d" NEWLINE,
+                            new_match->id, new_match->pattern_type, new_match->action_count);
+                /* Different prompt: clear consumed suppression and accept. */
+                if (e->consumed_match) {
+                    nabtoshell_pattern_match_free(e->consumed_match);
+                    e->consumed_match = NULL;
+                }
+                e->active_match = new_match;
+                should_notify = true;
+                notify_copy = nabtoshell_pattern_match_copy(e->active_match);
+            }
         } else if (e->buffer.total_appended % 2000 < stripped_len) {
             PATTERN_LOG("[Pattern] engine_feed: no match, tail_len=%zu\n", tail_len);
         }
@@ -420,6 +502,30 @@ void nabtoshell_pattern_engine_dismiss(nabtoshell_pattern_engine *e)
     e->dismissed_at_position = e->buffer.total_appended;
     if (e->active_match != NULL) {
         should_notify = true;
+    }
+    nabtoshell_pattern_match_free(e->active_match);
+    e->active_match = NULL;
+    pthread_mutex_unlock(&e->mutex);
+
+    if (should_notify && e->on_change) {
+        e->on_change(NULL, e->on_change_user_data);
+    }
+}
+
+void nabtoshell_pattern_engine_consume(nabtoshell_pattern_engine *e)
+{
+    bool should_notify = false;
+
+    pthread_mutex_lock(&e->mutex);
+    if (e->active_match != NULL) {
+        should_notify = true;
+        /* Save identity of consumed match so feed() can suppress re-matching
+         * the SAME prompt (TUI keeps redrawing it after user acted). A
+         * DIFFERENT prompt will still be detected immediately. */
+        nabtoshell_pattern_match_free(e->consumed_match);
+        e->consumed_match = nabtoshell_pattern_match_copy(e->active_match);
+        e->consumed_at_position = e->buffer.total_appended;
+        e->consumed_last_seen = e->buffer.total_appended;
     }
     nabtoshell_pattern_match_free(e->active_match);
     e->active_match = NULL;

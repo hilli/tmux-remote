@@ -33,6 +33,10 @@ typedef struct {
     bool user_dismissed;
     size_t dismissed_at_position;
 
+    nabtoshell_pattern_match *consumed_match;
+    size_t consumed_at_position;
+    size_t consumed_last_seen;  /* last position where consumed prompt was found in scan */
+
     pthread_mutex_t mutex;
 
     nabtoshell_pattern_engine_callback on_change;
@@ -56,6 +60,12 @@ void nabtoshell_pattern_engine_feed(nabtoshell_pattern_engine *e,
 
 // User-initiated dismiss of the current overlay.
 void nabtoshell_pattern_engine_dismiss(nabtoshell_pattern_engine *e);
+
+// User acted on the prompt (e.g. tapped an action button). Clears the
+// active match WITHOUT setting a time-based cooldown. Re-matching the
+// same prompt is suppressed until it leaves the match window; a
+// different prompt is detected immediately.
+void nabtoshell_pattern_engine_consume(nabtoshell_pattern_engine *e);
 
 // Set callback for match state changes.
 void nabtoshell_pattern_engine_set_callback(nabtoshell_pattern_engine *e,

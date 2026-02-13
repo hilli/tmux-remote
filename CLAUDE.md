@@ -136,6 +136,22 @@ The Nabto core runs its own event loop thread. All future callbacks execute on t
 - Do not skip IAM checks on any endpoint. Even GET /terminal/status requires authentication.
 - Do not frame the stream data. It is a raw byte pipe, same as SSH.
 
+## Writing replay tests from PTY recordings
+
+When a bug is reported with a PTY recording (`agent/tests/fixtures/*.ptyr`), follow this procedure:
+
+1. The reporter provides numbered steps describing what they did and what went wrong. Always include these steps verbatim as a comment at the top of the test.
+2. Run a baseline replay (no injected actions) to understand the event timeline.
+3. Map the reporter's steps to positions in the recording timeline: identify where user actions (consume, dismiss) should be injected and what the expected outcome is.
+4. Write the test: replay the recording, inject actions at the identified positions, assert the expected outcome.
+5. Verify the test fails without the fix (reproduces the bug) and passes with the fix.
+
+Rules:
+- Recordings and pattern configs must be checked into `agent/tests/fixtures/`. Tests must never depend on environment variables or paths outside the repo.
+- Fixture paths are passed via CMake `target_compile_definitions` (e.g., `TEST_FIXTURES_DIR`), not env vars.
+- Every replay test must include the reporter's steps as a comment block so future readers understand the real-world scenario.
+- If a synthetic test already exists for the same scenario, verify the replay test covers it, then remove the synthetic test.
+
 # Ground rules for debugging
 
 Never, ever start fixing or say "root cause found!" based on just speculation. Always act as an experienced senior engineer, gathering proof through instrumentation and/or tests: Reproduce problems to the extent possible using integration tests. Add stubs and drivers as necessary, executing as long code paths as possible in attempts to reproduce problems. If not possible to reproduce, tell me so instead of speculating about cause. Explain that you cannot reproduce and your instrumentation is not enough and I need to help. Then suggest where you can add further instrumentation and ask me to run manual test to reproduce the problem to allow you gather the instrumentation output. When you have this test and instrumentation supported insight, THEN you can deduce a root cause and make a plan from fixing. BUT ONLY THEN.
