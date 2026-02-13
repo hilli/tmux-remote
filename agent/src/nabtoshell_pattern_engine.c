@@ -307,36 +307,21 @@ void nabtoshell_pattern_engine_feed(nabtoshell_pattern_engine *e,
             PATTERN_LOG("[Pattern] auto-dismiss check: match=%s, chars_since=%zu, total=%zu\n",
                         e->active_match->id, chars_since_match, e->buffer.total_appended);
             size_t tail_len;
-            /* Re-scan the match window to see if the prompt is still near
-             * the end of the buffer (i.e. being actively redrawn by a TUI).
-             * Use a smaller scan window (chars_since + 500) to find the
-             * LATEST prompt copy, not an older partial one. This ensures
-             * action count upgrades work correctly when the buffer has
-             * multiple prompt copies from TUI redraws. */
-            size_t scan_window = chars_since_match + 500;
-            if (scan_window > PATTERN_ENGINE_MATCH_WINDOW)
-                scan_window = PATTERN_ENGINE_MATCH_WINDOW;
-            const char *tail = nabtoshell_rolling_buffer_tail(&e->buffer, scan_window, &tail_len);
+            /* Re-scan the full match window to see if the prompt is still
+             * anywhere in the buffer. The prompt may be visible on screen
+             * even when a lot of subsequent content has been rendered after
+             * it (status lines, activity indicators, etc.). Using the full
+             * window prevents premature dismissal in these cases.
+             *
+             * Note: the action count upgrade (finding the LATEST prompt
+             * copy in a small window) is handled separately above. Here
+             * we only need to know if the prompt is still present. */
+            const char *tail = nabtoshell_rolling_buffer_tail(&e->buffer, PATTERN_ENGINE_MATCH_WINDOW, &tail_len);
             nabtoshell_pattern_match *check = nabtoshell_pattern_matcher_match(&e->matcher, tail, tail_len, e->buffer.total_appended);
 
             if (check && strcmp(check->id, e->active_match->id) == 0) {
-                /* Prompt still in match window (TUI redraw). Reset age.
-                 * If the rescan found more actions (items arrived across
-                 * feeds), upgrade the active match and notify. */
-                if (check->action_count > e->active_match->action_count) {
-                    PATTERN_LOG("[Pattern] engine_feed: upgrade match=%s, actions %d->%d" NEWLINE,
-                                e->active_match->id,
-                                e->active_match->action_count,
-                                check->action_count);
-                    nabtoshell_pattern_match_free(e->active_match);
-                    e->active_match = check;
-                    check = NULL;  /* prevent double-free below */
-                    e->active_match->match_position = e->buffer.total_appended;
-                    should_notify = true;
-                    notify_copy = nabtoshell_pattern_match_copy(e->active_match);
-                } else {
-                    e->active_match->match_position = e->buffer.total_appended;
-                }
+                /* Prompt still in match window. Reset age. */
+                e->active_match->match_position = e->buffer.total_appended;
                 PATTERN_LOG("[Pattern] engine_feed: age-reset match=%s, actions=%d, chars_since=%zu" NEWLINE,
                             e->active_match->id, e->active_match->action_count, chars_since_match);
             } else {

@@ -14,6 +14,7 @@
 #define RECORDING_1_PATH TEST_FIXTURES_DIR "/pty-log-1.ptyr"
 #define RECORDING_2_PATH TEST_FIXTURES_DIR "/pty-log-2.ptyr"
 #define RECORDING_3_PATH TEST_FIXTURES_DIR "/pty-log-3.ptyr"
+#define RECORDING_4_PATH TEST_FIXTURES_DIR "/pty-log-4.ptyr"
 #define CONFIG_PATH      TEST_FIXTURES_DIR "/patterns.json"
 
 #define MAX_EVENTS 4096
@@ -400,6 +401,90 @@ START_TEST(test_prompt_with_trailing_spaces)
 }
 END_TEST
 
+START_TEST(test_match_not_immediately_dismissed)
+{
+    /* Reproduces the bug from pty-log-4.ptyr. Reporter's steps:
+     *
+     * 1) Start app
+     * 2) Terminal shown, no choice prompt visible and no overlay (good)
+     * 3) Write input that triggers choice prompt in terminal
+     * 4) Observe prompt in terminal but no overlay (fail)
+     *
+     * From the device log: the agent detects the match and sends it to
+     * the client. But the auto-dismiss fires very shortly after, so the
+     * client receives match followed immediately by dismiss, and the
+     * overlay appears and disappears too fast (or not at all).
+     *
+     * This test replays the recording with consume injected at the first
+     * match (reproducing the user acting on the earlier prompt). The
+     * second prompt must produce a match that is NOT immediately followed
+     * by a dismiss within the same feed. */
+    nabtoshell_pattern_config *config = load_config();
+    int frame_count;
+    ptyr_frame *frames = load_recording(RECORDING_4_PATH, &frame_count);
+
+    nabtoshell_pattern_engine engine;
+    nabtoshell_pattern_engine_init(&engine);
+    nabtoshell_pattern_engine_load_config(&engine, config);
+    nabtoshell_pattern_engine_select_agent(&engine, "claude-code");
+    event_count = 0;
+    total_bytes_fed = 0;
+    nabtoshell_pattern_engine_set_callback(&engine, replay_callback, NULL);
+
+    bool consumed_first = false;
+
+    for (int i = 0; i < frame_count; i++) {
+        nabtoshell_pattern_engine_feed(&engine, frames[i].data, frames[i].len);
+        total_bytes_fed += frames[i].len;
+
+        /* After the first match fires, inject consume(). */
+        if (!consumed_first && event_count >= 1 && events[0].is_match) {
+            nabtoshell_pattern_engine_consume(&engine);
+            consumed_first = true;
+            fprintf(stderr, "[debug-log4] consume at raw=%zu stripped=%zu\n",
+                    total_bytes_fed, engine.buffer.total_appended);
+        }
+    }
+
+    fprintf(stderr, "Replayed %d frames, %zu total bytes, stripped=%zu\n",
+            frame_count, total_bytes_fed, engine.buffer.total_appended);
+    print_timeline();
+
+    /* The final prompt must produce a match that is not immediately
+     * dismissed. Check that the last match in the timeline is NOT followed
+     * by a dismiss within 500 raw bytes. If it is, the user would never
+     * see the overlay. */
+    ck_assert_msg(event_count >= 2, "Expected >= 2 events, got %d", event_count);
+
+    /* Find the last match after consume. */
+    int last_match_idx = -1;
+    for (int i = event_count - 1; i >= 0; i--) {
+        if (events[i].is_match && events[i].bytes_fed > 5251) {
+            last_match_idx = i;
+            break;
+        }
+    }
+    ck_assert_msg(last_match_idx >= 0,
+                  "No match found after consume in pty-log-4");
+
+    /* Check if a dismiss follows immediately. */
+    if (last_match_idx + 1 < event_count) {
+        replay_event *m = &events[last_match_idx];
+        replay_event *d = &events[last_match_idx + 1];
+        if (!d->is_match) {
+            size_t gap = d->bytes_fed - m->bytes_fed;
+            ck_assert_msg(gap > 500,
+                          "Match at %zu was dismissed at %zu (gap=%zu bytes). "
+                          "Overlay would flash too briefly.", m->bytes_fed, d->bytes_fed, gap);
+        }
+    }
+
+    free_frames(frames, frame_count);
+    nabtoshell_pattern_engine_free(&engine);
+    nabtoshell_pattern_config_free(config);
+}
+END_TEST
+
 Suite *pty_replay_suite(void)
 {
     Suite *s = suite_create("PTY Replay");
@@ -409,6 +494,7 @@ Suite *pty_replay_suite(void)
     tcase_add_test(tc, test_consume_suppresses_tui_redraws);
     tcase_add_test(tc, test_second_prompt_missed_after_consume);
     tcase_add_test(tc, test_prompt_with_trailing_spaces);
+    tcase_add_test(tc, test_match_not_immediately_dismissed);
     suite_add_tcase(s, tc);
     return s;
 }
