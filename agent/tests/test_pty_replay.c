@@ -13,6 +13,7 @@
 
 #define RECORDING_1_PATH TEST_FIXTURES_DIR "/pty-log-1.ptyr"
 #define RECORDING_2_PATH TEST_FIXTURES_DIR "/pty-log-2.ptyr"
+#define RECORDING_3_PATH TEST_FIXTURES_DIR "/pty-log-3.ptyr"
 #define CONFIG_PATH      TEST_FIXTURES_DIR "/patterns.json"
 
 #define MAX_EVENTS 4096
@@ -346,6 +347,59 @@ START_TEST(test_second_prompt_missed_after_consume)
 }
 END_TEST
 
+START_TEST(test_prompt_with_trailing_spaces)
+{
+    /* Reproduces the bug from pty-log-3.ptyr. Reporter's steps:
+     *
+     * 1) Start app
+     * 2) Terminal shown, no choice prompt visible and no overlay (good)
+     * 3) Write input that triggers choice prompt in terminal
+     * 4) Observe no overlay (fail)
+     *
+     * Root cause: The TUI renders "Do you want to proceed?" followed by
+     * cursor positioning that the ANSI stripper converts to trailing
+     * spaces: "proceed?   \n" instead of "proceed?\n". The regex
+     * required \?\n with no whitespace tolerance, so it never matched.
+     *
+     * Fix: regex changed from \?\n to \? *\n to tolerate trailing
+     * horizontal whitespace after the question mark. */
+    nabtoshell_pattern_config *config = load_config();
+    int frame_count;
+    ptyr_frame *frames = load_recording(RECORDING_3_PATH, &frame_count);
+
+    nabtoshell_pattern_engine engine;
+    nabtoshell_pattern_engine_init(&engine);
+    nabtoshell_pattern_engine_load_config(&engine, config);
+    nabtoshell_pattern_engine_select_agent(&engine, "claude-code");
+    event_count = 0;
+    total_bytes_fed = 0;
+    nabtoshell_pattern_engine_set_callback(&engine, replay_callback, NULL);
+
+    for (int i = 0; i < frame_count; i++) {
+        nabtoshell_pattern_engine_feed(&engine, frames[i].data, frames[i].len);
+        total_bytes_fed += frames[i].len;
+    }
+
+    fprintf(stderr, "Replayed %d frames, %zu total bytes, stripped=%zu\n",
+            frame_count, total_bytes_fed, engine.buffer.total_appended);
+    print_timeline();
+
+    /* The recording contains a "Do you want to proceed?" prompt with
+     * trailing spaces after "?". The engine must detect it. */
+    int matches = 0;
+    for (int i = 0; i < event_count; i++) {
+        if (events[i].is_match) matches++;
+    }
+    ck_assert_msg(matches >= 1,
+                  "Expected >= 1 match in pty-log-3, got %d. "
+                  "Prompt with trailing spaces was not detected.", matches);
+
+    free_frames(frames, frame_count);
+    nabtoshell_pattern_engine_free(&engine);
+    nabtoshell_pattern_config_free(config);
+}
+END_TEST
+
 Suite *pty_replay_suite(void)
 {
     Suite *s = suite_create("PTY Replay");
@@ -354,6 +408,7 @@ Suite *pty_replay_suite(void)
     tcase_add_test(tc, test_pty_replay_baseline);
     tcase_add_test(tc, test_consume_suppresses_tui_redraws);
     tcase_add_test(tc, test_second_prompt_missed_after_consume);
+    tcase_add_test(tc, test_prompt_with_trailing_spaces);
     suite_add_tcase(s, tc);
     return s;
 }

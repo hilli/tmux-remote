@@ -7,7 +7,7 @@
         {
           "id": "numbered_prompt",
           "type": "numbered_menu",
-          "regex": "Do you want to .+\\?\\n.*1\\. .+\\n.*2\\. .+",
+          "regex": "Do you want to .+\\? *\\n.*1\\. .+\\n.*2\\. .+",
           "multi_line": true,
           "action_template": { "keys": "{number}" }
         },
