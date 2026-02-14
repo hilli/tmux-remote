@@ -117,6 +117,33 @@ final class PatternEngineTests: XCTestCase {
         XCTAssertFalse(engine.canRestoreHiddenMatch)
     }
 
+    func testImmediatePresentAfterResolveIsIgnored() {
+        let engine = makeEngine()
+        nowRef = Date(timeIntervalSince1970: 100)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-1", revision: 1, prompt: "Do you want to proceed?"))
+        engine.dismissLocally(instanceId: "inst-1")
+        engine.restoreOverlay()
+        engine.resolveLocally(instanceId: "inst-1")
+
+        nowRef = Date(timeIntervalSince1970: 100.1)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-2", revision: 1, prompt: "Do you want to proceed?"))
+
+        XCTAssertNil(engine.visibleMatch)
+    }
+
+    func testPresentAfterResolveSuppressionWindowAppears() {
+        let engine = makeEngine()
+        nowRef = Date(timeIntervalSince1970: 200)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-1", revision: 1, prompt: "Do you want to proceed?"))
+        engine.resolveLocally(instanceId: "inst-1")
+
+        nowRef = Date(timeIntervalSince1970: 202)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-2", revision: 1, prompt: "Do you want to proceed?"))
+
+        XCTAssertNotNil(engine.visibleMatch)
+        XCTAssertEqual(engine.visibleMatch?.id, "inst-2")
+    }
+
     func testResetClearsActiveMatch() {
         let engine = makeEngine()
         engine.applyServerPresent(makeMatch())
