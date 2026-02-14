@@ -17,6 +17,7 @@
 #define RECORDING_PATH_STICKY_2 TEST_FIXTURES_DIR "/pty-log-8.ptyr"
 #define RECORDING_PATH_STICKY_3 TEST_FIXTURES_DIR "/pty-log-9.ptyr"
 #define RECORDING_PATH_STICKY_4 TEST_FIXTURES_DIR "/pty-log-10.ptyr"
+#define RECORDING_PATH_RESOLVED_EXTERNALLY TEST_FIXTURES_DIR "/pty-log-15.ptyr"
 #define CONFIG_PATH TEST_FIXTURES_DIR "/patterns.json"
 
 typedef struct {
@@ -368,6 +369,27 @@ START_TEST(test_replay_sticky_prompt_remains_complete_4)
 }
 END_TEST
 
+START_TEST(test_replay_external_resolution_emits_gone)
+{
+    int frame_count = 0;
+    ptyr_frame* frames = load_recording(RECORDING_PATH_RESOLVED_EXTERNALLY, &frame_count);
+
+    nabtoshell_prompt_instance* active = NULL;
+    replay_frames(frames, frame_count, false, &active);
+
+    ck_assert_int_gt(count_event_type(NABTOSHELL_PROMPT_EVENT_PRESENT), 0);
+    ck_assert_int_gt(count_event_type(NABTOSHELL_PROMPT_EVENT_GONE), 0);
+    ck_assert_ptr_null(active);
+
+    if (active != NULL) {
+        nabtoshell_prompt_instance_free(active);
+        free(active);
+    }
+
+    free_frames(frames, frame_count);
+}
+END_TEST
+
 Suite* replay_suite(void)
 {
     Suite* s = suite_create("PromptDetectorReplay");
@@ -378,6 +400,7 @@ Suite* replay_suite(void)
     tcase_add_test(tc, test_replay_sticky_prompt_remains_active_2);
     tcase_add_test(tc, test_replay_sticky_prompt_remains_complete_3);
     tcase_add_test(tc, test_replay_sticky_prompt_remains_complete_4);
+    tcase_add_test(tc, test_replay_external_resolution_emits_gone);
     tcase_add_test(tc, test_chunk_split_keeps_terminal_result);
 
     suite_add_tcase(s, tc);

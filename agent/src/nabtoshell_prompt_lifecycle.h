@@ -7,7 +7,7 @@
 #include "nabtoshell_prompt.h"
 #include "nabtoshell_prompt_rules.h"
 
-#define NABTOSHELL_PROMPT_ABSENCE_SNAPSHOTS 8
+#define NABTOSHELL_PROMPT_ABSENCE_SNAPSHOTS 1
 
 typedef void (*nabtoshell_prompt_lifecycle_callback)(
     nabtoshell_prompt_event_type type,

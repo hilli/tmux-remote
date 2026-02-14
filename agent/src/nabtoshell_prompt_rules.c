@@ -524,6 +524,24 @@ static bool fill_candidate_from_rule(const nabtoshell_compiled_prompt_rule* rule
     return true;
 }
 
+static bool is_cursor_relevant_for_prompt(const nabtoshell_compiled_prompt_rule* rule,
+                                          const nabtoshell_terminal_snapshot* snapshot,
+                                          int prompt_row)
+{
+    if (rule == NULL || snapshot == NULL) {
+        return false;
+    }
+
+    if (snapshot->cursor_row < prompt_row - 1) {
+        return false;
+    }
+
+    // Keep prompt matches scoped near the active cursor location so stale
+    // scrollback prompts do not remain "active" after external resolution.
+    int max_relevant_row = prompt_row + rule->max_scan_lines + 2;
+    return snapshot->cursor_row <= max_relevant_row;
+}
+
 bool nabtoshell_prompt_ruleset_match(const nabtoshell_prompt_ruleset* ruleset,
                                      const nabtoshell_terminal_snapshot* snapshot,
                                      nabtoshell_prompt_candidate* out_candidate)
@@ -548,6 +566,10 @@ bool nabtoshell_prompt_ruleset_match(const nabtoshell_prompt_ruleset* ruleset,
             }
 
             if (!regex_matches_line(rule->prompt_regex, line)) {
+                continue;
+            }
+
+            if (!is_cursor_relevant_for_prompt(rule, snapshot, row)) {
                 continue;
             }
 
