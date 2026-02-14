@@ -1,167 +1,340 @@
 #include "nabtoshell_pattern_config.h"
+
 #include <cjson/cJSON.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-static char *strdup_safe(const char *s)
+#define NABTOSHELL_PATTERN_CONFIG_VERSION 3
+#define NABTOSHELL_DEFAULT_MAX_SCAN_LINES 10
+
+static char* strdup_safe(const char* s)
 {
-    return s ? strdup(s) : NULL;
+    return (s != NULL) ? strdup(s) : NULL;
 }
 
-static nabtoshell_pattern_type parse_type(const char *s)
+static nabtoshell_prompt_type parse_type(const char* s, bool* ok)
 {
-    if (!s) return PATTERN_TYPE_YES_NO;
-    if (strcmp(s, "yes_no") == 0) return PATTERN_TYPE_YES_NO;
-    if (strcmp(s, "numbered_menu") == 0) return PATTERN_TYPE_NUMBERED_MENU;
-    if (strcmp(s, "accept_reject") == 0) return PATTERN_TYPE_ACCEPT_REJECT;
-    return PATTERN_TYPE_YES_NO;
+    if (ok != NULL) {
+        *ok = true;
+    }
+
+    if (s == NULL) {
+        if (ok != NULL) {
+            *ok = false;
+        }
+        return NABTOSHELL_PROMPT_TYPE_YES_NO;
+    }
+
+    if (strcmp(s, "yes_no") == 0) {
+        return NABTOSHELL_PROMPT_TYPE_YES_NO;
+    }
+    if (strcmp(s, "numbered_menu") == 0) {
+        return NABTOSHELL_PROMPT_TYPE_NUMBERED_MENU;
+    }
+    if (strcmp(s, "accept_reject") == 0) {
+        return NABTOSHELL_PROMPT_TYPE_ACCEPT_REJECT;
+    }
+
+    if (ok != NULL) {
+        *ok = false;
+    }
+    return NABTOSHELL_PROMPT_TYPE_YES_NO;
 }
 
-static void free_definition(nabtoshell_pattern_definition *d)
+static void free_definition(nabtoshell_pattern_definition* d)
 {
+    if (d == NULL) {
+        return;
+    }
+
     free(d->id);
-    free(d->regex);
+    free(d->prompt_regex);
+    free(d->option_regex);
+
     for (int i = 0; i < d->action_count; i++) {
         free(d->actions[i].label);
         free(d->actions[i].keys);
     }
     free(d->actions);
-    if (d->action_template) {
+
+    if (d->action_template != NULL) {
         free(d->action_template->keys);
         free(d->action_template);
     }
+
+    memset(d, 0, sizeof(*d));
 }
 
-nabtoshell_pattern_config *nabtoshell_pattern_config_parse(const char *json, size_t json_len)
+static bool parse_actions(cJSON* actions,
+                          nabtoshell_pattern_action** out_actions,
+                          int* out_count)
 {
-    cJSON *root = cJSON_ParseWithLength(json, json_len);
-    if (!root) return NULL;
+    *out_actions = NULL;
+    *out_count = 0;
 
-    cJSON *version = cJSON_GetObjectItem(root, "version");
-    if (!cJSON_IsNumber(version)) {
+    if (!cJSON_IsArray(actions)) {
+        return true;
+    }
+
+    int count = cJSON_GetArraySize(actions);
+    if (count <= 0) {
+        return true;
+    }
+
+    nabtoshell_pattern_action* parsed = calloc((size_t)count,
+                                               sizeof(nabtoshell_pattern_action));
+    if (parsed == NULL) {
+        return false;
+    }
+
+    int valid = 0;
+    for (int i = 0; i < count; i++) {
+        cJSON* action = cJSON_GetArrayItem(actions, i);
+        char* label = strdup_safe(cJSON_GetStringValue(
+            cJSON_GetObjectItem(action, "label")));
+        char* keys = strdup_safe(cJSON_GetStringValue(
+            cJSON_GetObjectItem(action, "keys")));
+
+        if (label == NULL || keys == NULL) {
+            free(label);
+            free(keys);
+            continue;
+        }
+
+        parsed[valid].label = label;
+        parsed[valid].keys = keys;
+        valid++;
+    }
+
+    if (valid == 0) {
+        free(parsed);
+        return true;
+    }
+
+    *out_actions = parsed;
+    *out_count = valid;
+    return true;
+}
+
+static bool parse_action_template(cJSON* item,
+                                  nabtoshell_pattern_action_template** out_template)
+{
+    *out_template = NULL;
+
+    cJSON* tmpl = cJSON_GetObjectItem(item, "action_template");
+    if (!cJSON_IsObject(tmpl)) {
+        return true;
+    }
+
+    const char* keys = cJSON_GetStringValue(cJSON_GetObjectItem(tmpl, "keys"));
+    if (keys == NULL) {
+        return true;
+    }
+
+    nabtoshell_pattern_action_template* parsed = calloc(1, sizeof(*parsed));
+    if (parsed == NULL) {
+        return false;
+    }
+
+    parsed->keys = strdup(keys);
+    if (parsed->keys == NULL) {
+        free(parsed);
+        return false;
+    }
+
+    *out_template = parsed;
+    return true;
+}
+
+static bool parse_definition(cJSON* item, nabtoshell_pattern_definition* out)
+{
+    memset(out, 0, sizeof(*out));
+
+    const char* id = cJSON_GetStringValue(cJSON_GetObjectItem(item, "id"));
+    const char* type_string = cJSON_GetStringValue(cJSON_GetObjectItem(item, "type"));
+    const char* prompt_regex = cJSON_GetStringValue(
+        cJSON_GetObjectItem(item, "prompt_regex"));
+    const char* option_regex = cJSON_GetStringValue(
+        cJSON_GetObjectItem(item, "option_regex"));
+
+    bool type_ok = false;
+    nabtoshell_prompt_type type = parse_type(type_string, &type_ok);
+
+    if (id == NULL || prompt_regex == NULL || !type_ok) {
+        return false;
+    }
+
+    out->id = strdup(id);
+    out->prompt_regex = strdup(prompt_regex);
+    out->option_regex = strdup_safe(option_regex);
+    out->type = type;
+
+    if (out->id == NULL || out->prompt_regex == NULL) {
+        free_definition(out);
+        return false;
+    }
+
+    if (!parse_actions(cJSON_GetObjectItem(item, "actions"),
+                       &out->actions, &out->action_count)) {
+        free_definition(out);
+        return false;
+    }
+
+    if (!parse_action_template(item, &out->action_template)) {
+        free_definition(out);
+        return false;
+    }
+
+    cJSON* max_scan_lines = cJSON_GetObjectItem(item, "max_scan_lines");
+    out->max_scan_lines = NABTOSHELL_DEFAULT_MAX_SCAN_LINES;
+    if (cJSON_IsNumber(max_scan_lines) && max_scan_lines->valueint > 0) {
+        out->max_scan_lines = max_scan_lines->valueint;
+    }
+
+    if (out->type == NABTOSHELL_PROMPT_TYPE_NUMBERED_MENU) {
+        if (out->action_template == NULL || out->action_template->keys == NULL) {
+            free_definition(out);
+            return false;
+        }
+    } else {
+        if (out->action_count <= 0) {
+            free_definition(out);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+nabtoshell_pattern_config* nabtoshell_pattern_config_parse(const char* json,
+                                                           size_t json_len)
+{
+    cJSON* root = cJSON_ParseWithLength(json, json_len);
+    if (root == NULL) {
+        return NULL;
+    }
+
+    cJSON* version = cJSON_GetObjectItem(root, "version");
+    cJSON* agents_obj = cJSON_GetObjectItem(root, "agents");
+
+    if (!cJSON_IsNumber(version) || version->valueint != NABTOSHELL_PATTERN_CONFIG_VERSION ||
+        !cJSON_IsObject(agents_obj)) {
         cJSON_Delete(root);
         return NULL;
     }
 
-    cJSON *agents_obj = cJSON_GetObjectItem(root, "agents");
-    if (!cJSON_IsObject(agents_obj)) {
+    nabtoshell_pattern_config* config = calloc(1, sizeof(*config));
+    if (config == NULL) {
         cJSON_Delete(root);
         return NULL;
     }
 
-    nabtoshell_pattern_config *config = calloc(1, sizeof(*config));
     config->version = version->valueint;
 
-    // Count agents
     int agent_count = cJSON_GetArraySize(agents_obj);
-    config->agents = calloc(agent_count, sizeof(nabtoshell_agent_config));
-    config->agent_count = agent_count;
-
-    int ai = 0;
-    cJSON *agent_item = NULL;
-    cJSON_ArrayForEach(agent_item, agents_obj) {
-        nabtoshell_agent_config *ac = &config->agents[ai];
-        ac->id = strdup(agent_item->string);
-
-        cJSON *name = cJSON_GetObjectItem(agent_item, "name");
-        ac->name = strdup_safe(cJSON_GetStringValue(name));
-
-        cJSON *patterns = cJSON_GetObjectItem(agent_item, "patterns");
-        int pcount = cJSON_IsArray(patterns) ? cJSON_GetArraySize(patterns) : 0;
-        ac->patterns = calloc(pcount > 0 ? pcount : 1, sizeof(nabtoshell_pattern_definition));
-        ac->pattern_count = pcount;
-
-        int valid = 0;
-        for (int pi = 0; pi < pcount; pi++) {
-            cJSON *pitem = cJSON_GetArrayItem(patterns, pi);
-            nabtoshell_pattern_definition *pd = &ac->patterns[valid];
-
-            cJSON *id = cJSON_GetObjectItem(pitem, "id");
-            pd->id = strdup_safe(cJSON_GetStringValue(id));
-            if (!pd->id) {
-                continue;  /* skip: id is required */
-            }
-
-            cJSON *regex = cJSON_GetObjectItem(pitem, "regex");
-            pd->regex = strdup_safe(cJSON_GetStringValue(regex));
-            if (!pd->regex) {
-                free(pd->id);
-                memset(pd, 0, sizeof(*pd));
-                continue;  /* skip: regex is required */
-            }
-
-            cJSON *type = cJSON_GetObjectItem(pitem, "type");
-            pd->type = parse_type(cJSON_GetStringValue(type));
-
-            cJSON *multi_line = cJSON_GetObjectItem(pitem, "multi_line");
-            pd->multi_line = cJSON_IsBool(multi_line) && cJSON_IsTrue(multi_line);
-
-            // Actions array (for yes_no, accept_reject)
-            cJSON *actions = cJSON_GetObjectItem(pitem, "actions");
-            if (cJSON_IsArray(actions)) {
-                int acount = cJSON_GetArraySize(actions);
-                pd->actions = calloc(acount > 0 ? acount : 1, sizeof(nabtoshell_pattern_action));
-                int avalid = 0;
-                for (int j = 0; j < acount; j++) {
-                    cJSON *a = cJSON_GetArrayItem(actions, j);
-                    char *label = strdup_safe(cJSON_GetStringValue(cJSON_GetObjectItem(a, "label")));
-                    char *keys = strdup_safe(cJSON_GetStringValue(cJSON_GetObjectItem(a, "keys")));
-                    if (!label || !keys) {
-                        free(label);
-                        free(keys);
-                        continue;  /* skip invalid action */
-                    }
-                    pd->actions[avalid].label = label;
-                    pd->actions[avalid].keys = keys;
-                    avalid++;
-                }
-                pd->action_count = avalid;
-            }
-
-            // Action template (for numbered_menu)
-            cJSON *tmpl = cJSON_GetObjectItem(pitem, "action_template");
-            if (cJSON_IsObject(tmpl)) {
-                char *tmpl_keys = strdup_safe(cJSON_GetStringValue(cJSON_GetObjectItem(tmpl, "keys")));
-                if (tmpl_keys) {
-                    pd->action_template = calloc(1, sizeof(nabtoshell_pattern_action_template));
-                    pd->action_template->keys = tmpl_keys;
-                }
-            }
-
-            valid++;
-        }
-        ac->pattern_count = valid;
-        ai++;
+    config->agents = calloc((size_t)(agent_count > 0 ? agent_count : 1),
+                            sizeof(nabtoshell_agent_config));
+    if (config->agents == NULL) {
+        nabtoshell_pattern_config_free(config);
+        cJSON_Delete(root);
+        return NULL;
     }
 
+    int valid_agents = 0;
+    cJSON* agent_item = NULL;
+    cJSON_ArrayForEach(agent_item, agents_obj) {
+        const char* agent_id = agent_item->string;
+        if (agent_id == NULL || !cJSON_IsObject(agent_item)) {
+            continue;
+        }
+
+        nabtoshell_agent_config* agent = &config->agents[valid_agents];
+        agent->id = strdup(agent_id);
+        agent->name = strdup_safe(cJSON_GetStringValue(
+            cJSON_GetObjectItem(agent_item, "name")));
+
+        cJSON* rules = cJSON_GetObjectItem(agent_item, "rules");
+        int rules_count = cJSON_IsArray(rules) ? cJSON_GetArraySize(rules) : 0;
+
+        if (agent->id == NULL) {
+            free(agent->name);
+            memset(agent, 0, sizeof(*agent));
+            continue;
+        }
+
+        agent->patterns = calloc((size_t)(rules_count > 0 ? rules_count : 1),
+                                 sizeof(nabtoshell_pattern_definition));
+        if (agent->patterns == NULL) {
+            free(agent->id);
+            free(agent->name);
+            memset(agent, 0, sizeof(*agent));
+            continue;
+        }
+
+        int valid_rules = 0;
+        for (int i = 0; i < rules_count; i++) {
+            cJSON* rule = cJSON_GetArrayItem(rules, i);
+            nabtoshell_pattern_definition parsed;
+            if (!parse_definition(rule, &parsed)) {
+                continue;
+            }
+
+            agent->patterns[valid_rules] = parsed;
+            valid_rules++;
+        }
+
+        agent->pattern_count = valid_rules;
+        valid_agents++;
+    }
+
+    config->agent_count = valid_agents;
     cJSON_Delete(root);
+
+    if (config->agent_count == 0) {
+        nabtoshell_pattern_config_free(config);
+        return NULL;
+    }
+
     return config;
 }
 
-void nabtoshell_pattern_config_free(nabtoshell_pattern_config *config)
+void nabtoshell_pattern_config_free(nabtoshell_pattern_config* config)
 {
-    if (!config) return;
-    for (int i = 0; i < config->agent_count; i++) {
-        nabtoshell_agent_config *ac = &config->agents[i];
-        free(ac->id);
-        free(ac->name);
-        for (int j = 0; j < ac->pattern_count; j++) {
-            free_definition(&ac->patterns[j]);
-        }
-        free(ac->patterns);
+    if (config == NULL) {
+        return;
     }
+
+    for (int i = 0; i < config->agent_count; i++) {
+        nabtoshell_agent_config* agent = &config->agents[i];
+
+        free(agent->id);
+        free(agent->name);
+
+        for (int j = 0; j < agent->pattern_count; j++) {
+            free_definition(&agent->patterns[j]);
+        }
+        free(agent->patterns);
+    }
+
     free(config->agents);
     free(config);
 }
 
-const nabtoshell_agent_config *nabtoshell_pattern_config_find_agent(
-    const nabtoshell_pattern_config *config, const char *agent_id)
+const nabtoshell_agent_config* nabtoshell_pattern_config_find_agent(
+    const nabtoshell_pattern_config* config,
+    const char* agent_id)
 {
-    if (!config || !agent_id) return NULL;
+    if (config == NULL || agent_id == NULL) {
+        return NULL;
+    }
+
     for (int i = 0; i < config->agent_count; i++) {
-        if (strcmp(config->agents[i].id, agent_id) == 0) {
+        if (config->agents[i].id != NULL &&
+            strcmp(config->agents[i].id, agent_id) == 0) {
             return &config->agents[i];
         }
     }
+
     return NULL;
 }

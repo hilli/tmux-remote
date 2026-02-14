@@ -2,14 +2,17 @@
 #define NABTOSHELL_STREAM_H_
 
 #include <nabto/nabto_device.h>
-#include <stdatomic.h>
+
+#include <pthread.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <pthread.h>
 #include <sys/types.h>
+
+#include "nabtoshell_prompt_detector.h"
+#include "nabtoshell_prompt.h"
 #include "nabtoshell_session.h"
-#include "nabtoshell_pattern_engine.h"
 
 #define NABTOSHELL_STREAM_BUFFER_SIZE 4096
 #define NABTOSHELL_MAX_ACTIVE_STREAMS 8
@@ -25,8 +28,8 @@ struct nabtoshell_active_stream {
     atomic_bool closing;
     atomic_bool closeStarted;
 
-    nabtoshell_pattern_engine patternEngine;
-    bool patternEngineInitialized;
+    nabtoshell_prompt_detector promptDetector;
+    bool promptDetectorInitialized;
     NabtoDeviceConnectionRef connectionRef;
 
     FILE* ptyRecordFile;
@@ -59,23 +62,22 @@ struct nabtoshell_stream_listener {
 void nabtoshell_stream_listener_init(struct nabtoshell_stream_listener* sl,
                                      NabtoDevice* device,
                                      struct nabtoshell* app);
+
 void nabtoshell_stream_listener_stop(struct nabtoshell_stream_listener* sl);
 void nabtoshell_stream_listener_deinit(struct nabtoshell_stream_listener* sl);
 
 int nabtoshell_stream_get_pty_fd(struct nabtoshell_stream_listener* sl,
                                  NabtoDeviceConnectionRef ref);
 
-/* Thread-safe: returns a deep copy of the active pattern match for the
- * data stream matching the given connectionRef. Returns NULL if no
- * stream matches or no match is active. Caller must free. */
-nabtoshell_pattern_match *nabtoshell_stream_copy_active_match_for_ref(
+nabtoshell_prompt_instance* nabtoshell_stream_copy_active_prompt_for_ref(
     struct nabtoshell_stream_listener* sl,
     NabtoDeviceConnectionRef ref);
 
-/* Thread-safe: dismiss the active pattern on the data stream matching
- * the given connectionRef. Called when the client reports user action. */
-void nabtoshell_stream_dismiss_pattern_for_ref(
+void nabtoshell_stream_resolve_prompt_for_ref(
     struct nabtoshell_stream_listener* sl,
-    NabtoDeviceConnectionRef ref);
+    NabtoDeviceConnectionRef ref,
+    const char* instance_id,
+    const char* decision,
+    const char* keys);
 
 #endif

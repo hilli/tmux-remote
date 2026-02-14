@@ -21,14 +21,14 @@ find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PCRE2 REQUIRED IMPORTED_TARGET libpcre2-8)
 
-# Pattern detection library (shared between agent and tests)
-set(pattern_src
-  src/nabtoshell_ansi_stripper.c
-  src/nabtoshell_rolling_buffer.c
+set(prompt_src
+  src/nabtoshell_prompt.c
   src/nabtoshell_pattern_config.c
-  src/nabtoshell_pattern_matcher.c
-  src/nabtoshell_pattern_engine.c
-  src/nabtoshell_pattern_cbor.c
+  src/nabtoshell_terminal_state.c
+  src/nabtoshell_prompt_rules.c
+  src/nabtoshell_prompt_lifecycle.c
+  src/nabtoshell_prompt_detector.c
+  src/nabtoshell_prompt_protocol.c
 )
 
 set(src
@@ -48,7 +48,7 @@ set(src
   src/nabtoshell_session.c
   src/nabtoshell_tmux.c
   src/nabtoshell_banner.c
-  ${pattern_src}
+  ${prompt_src}
 )
 
 add_executable(nabtoshell-agent ${src})
@@ -77,55 +77,38 @@ endif()
 
 install(TARGETS nabtoshell-agent RUNTIME DESTINATION bin)
 
-# Tests (only if Check is found)
 pkg_check_modules(CHECK IMPORTED_TARGET check)
 if(CHECK_FOUND)
   enable_testing()
 
-  # Static library for pattern detection (no Nabto SDK dependency)
-  add_library(nabtoshell_pattern STATIC ${pattern_src})
-  target_include_directories(nabtoshell_pattern PUBLIC src)
-  target_link_libraries(nabtoshell_pattern PUBLIC
+  add_library(nabtoshell_prompt STATIC ${prompt_src})
+  target_include_directories(nabtoshell_prompt PUBLIC src)
+  target_link_libraries(nabtoshell_prompt PUBLIC
     cjson PkgConfig::PCRE2 TinyCBOR::tinycbor Threads::Threads)
 
-  # Test: ANSI Stripper
-  add_executable(test_ansi_stripper tests/test_ansi_stripper.c)
-  target_link_libraries(test_ansi_stripper nabtoshell_pattern PkgConfig::CHECK)
-  add_test(NAME ansi_stripper COMMAND test_ansi_stripper)
+  add_executable(test_prompt_config tests/test_prompt_config.c)
+  target_link_libraries(test_prompt_config nabtoshell_prompt PkgConfig::CHECK)
+  add_test(NAME prompt_config COMMAND test_prompt_config)
 
-  # Test: Pattern Config
-  add_executable(test_pattern_config tests/test_pattern_config.c)
-  target_link_libraries(test_pattern_config nabtoshell_pattern PkgConfig::CHECK)
-  add_test(NAME pattern_config COMMAND test_pattern_config)
+  add_executable(test_terminal_state tests/test_terminal_state.c)
+  target_link_libraries(test_terminal_state nabtoshell_prompt PkgConfig::CHECK)
+  add_test(NAME terminal_state COMMAND test_terminal_state)
 
-  # Test: Pattern Matcher
-  add_executable(test_pattern_matcher tests/test_pattern_matcher.c)
-  target_link_libraries(test_pattern_matcher nabtoshell_pattern PkgConfig::CHECK)
-  add_test(NAME pattern_matcher COMMAND test_pattern_matcher)
+  add_executable(test_prompt_rules tests/test_prompt_rules.c)
+  target_link_libraries(test_prompt_rules nabtoshell_prompt PkgConfig::CHECK)
+  add_test(NAME prompt_rules COMMAND test_prompt_rules)
 
-  # Test: Pattern Engine
-  add_executable(test_pattern_engine tests/test_pattern_engine.c)
-  target_link_libraries(test_pattern_engine nabtoshell_pattern PkgConfig::CHECK)
-  add_test(NAME pattern_engine COMMAND test_pattern_engine)
+  add_executable(test_prompt_lifecycle tests/test_prompt_lifecycle.c)
+  target_link_libraries(test_prompt_lifecycle nabtoshell_prompt PkgConfig::CHECK)
+  add_test(NAME prompt_lifecycle COMMAND test_prompt_lifecycle)
 
-  # Test: Pattern Broadcast (CBOR roundtrip, integration, thread safety)
-  add_executable(test_pattern_broadcast tests/test_pattern_broadcast.c)
-  target_link_libraries(test_pattern_broadcast nabtoshell_pattern PkgConfig::CHECK)
-  add_test(NAME pattern_broadcast COMMAND test_pattern_broadcast)
+  add_executable(test_prompt_protocol tests/test_prompt_protocol.c)
+  target_link_libraries(test_prompt_protocol nabtoshell_prompt PkgConfig::CHECK)
+  add_test(NAME prompt_protocol COMMAND test_prompt_protocol)
 
-  # Test: Pattern Routing (per-stream isolation, ref-scoped delivery)
-  add_executable(test_pattern_routing tests/test_pattern_routing.c)
-  target_link_libraries(test_pattern_routing nabtoshell_pattern PkgConfig::CHECK)
-  target_include_directories(test_pattern_routing PRIVATE
-    ${NABTO_SDK_SRC}/include
-  )
-  target_compile_definitions(test_pattern_routing PRIVATE NABTOSHELL_TESTING)
-  add_test(NAME pattern_routing COMMAND test_pattern_routing)
-
-  # Test: PTY Replay
-  add_executable(test_pty_replay tests/test_pty_replay.c)
-  target_link_libraries(test_pty_replay nabtoshell_pattern PkgConfig::CHECK)
-  target_compile_definitions(test_pty_replay PRIVATE
+  add_executable(test_prompt_detector_replay tests/test_prompt_detector_replay.c)
+  target_link_libraries(test_prompt_detector_replay nabtoshell_prompt PkgConfig::CHECK)
+  target_compile_definitions(test_prompt_detector_replay PRIVATE
     TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
-  add_test(NAME pty_replay COMMAND test_pty_replay)
+  add_test(NAME prompt_detector_replay COMMAND test_prompt_detector_replay)
 endif()

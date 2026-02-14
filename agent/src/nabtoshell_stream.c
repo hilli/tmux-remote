@@ -1,18 +1,19 @@
 #include "nabtoshell_stream.h"
+
 #include "nabtoshell.h"
 #include "nabtoshell_control_stream.h"
-#include "nabtoshell_pattern_engine.h"
 #include "nabtoshell_session.h"
 #include "nabtoshell_tmux.h"
 
+#include <arpa/inet.h>
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
-#include <errno.h>
+#include <unistd.h>
 
 #ifdef __APPLE__
 #include <util.h>
@@ -20,17 +21,18 @@
 #include <pty.h>
 #endif
 
-#include <arpa/inet.h>
-
 #define NEWLINE "\n"
 
 static void start_listen(struct nabtoshell_stream_listener* sl);
-static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_callback(NabtoDeviceFuture* future,
+                            NabtoDeviceError ec,
                             void* userData);
-static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_accepted(NabtoDeviceFuture* future,
+                            NabtoDeviceError ec,
                             void* userData);
 static void start_stream_close(struct nabtoshell_active_stream* as);
-static void stream_closed(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_closed(NabtoDeviceFuture* future,
+                          NabtoDeviceError ec,
                           void* userData);
 static void cleanup_active_stream(struct nabtoshell_active_stream* as);
 static void* stream_setup_thread(void* arg);
@@ -74,7 +76,6 @@ void nabtoshell_stream_listener_stop(struct nabtoshell_stream_listener* sl)
         nabto_device_listener_stop(sl->listener);
     }
 
-    /* Mark active streams for shutdown without blocking in this thread. */
     pthread_mutex_lock(&sl->activeStreamsMutex);
     struct nabtoshell_active_stream* as = sl->activeStreams;
     while (as != NULL) {
@@ -89,8 +90,6 @@ void nabtoshell_stream_listener_stop(struct nabtoshell_stream_listener* sl)
 
 void nabtoshell_stream_listener_deinit(struct nabtoshell_stream_listener* sl)
 {
-    /* Snapshot the list under lock, then join/free without lock
-     * (safe because stop was called and no new streams are accepted). */
     pthread_mutex_lock(&sl->activeStreamsMutex);
     struct nabtoshell_active_stream* as = sl->activeStreams;
     sl->activeStreams = NULL;
@@ -125,8 +124,9 @@ void nabtoshell_stream_listener_deinit(struct nabtoshell_stream_listener* sl)
             waitpid(as->childPid, NULL, 0);
             as->childPid = -1;
         }
-        if (as->patternEngineInitialized) {
-            nabtoshell_pattern_engine_free(&as->patternEngine);
+        if (as->promptDetectorInitialized) {
+            nabtoshell_prompt_detector_free(&as->promptDetector);
+            as->promptDetectorInitialized = false;
         }
         if (as->stream != NULL) {
             nabto_device_stream_free(as->stream);
@@ -146,40 +146,43 @@ void nabtoshell_stream_listener_deinit(struct nabtoshell_stream_listener* sl)
     pthread_mutex_destroy(&sl->activeStreamsMutex);
 }
 
-/* Returns a copy of the active pattern match for the data stream belonging
- * to the given connection ref.  The protocol guarantees at most one active
- * data stream per connection (attach + open on port 1), so the first
- * non-closing match is authoritative.  If this invariant is ever violated,
- * we still return the first match found. */
-nabtoshell_pattern_match* nabtoshell_stream_copy_active_match_for_ref(
+nabtoshell_prompt_instance* nabtoshell_stream_copy_active_prompt_for_ref(
     struct nabtoshell_stream_listener* sl,
     NabtoDeviceConnectionRef ref)
 {
-    nabtoshell_pattern_match* result = NULL;
+    nabtoshell_prompt_instance* result = NULL;
+
     pthread_mutex_lock(&sl->activeStreamsMutex);
     struct nabtoshell_active_stream* as = sl->activeStreams;
     while (as != NULL) {
-        if (!atomic_load(&as->closing) && as->patternEngineInitialized &&
+        if (!atomic_load(&as->closing) && as->promptDetectorInitialized &&
             as->connectionRef == ref) {
-            result = nabtoshell_pattern_engine_copy_active_match(&as->patternEngine);
+            result = nabtoshell_prompt_detector_copy_active(&as->promptDetector);
             break;
         }
         as = as->next;
     }
     pthread_mutex_unlock(&sl->activeStreamsMutex);
+
     return result;
 }
 
-void nabtoshell_stream_dismiss_pattern_for_ref(
+void nabtoshell_stream_resolve_prompt_for_ref(
     struct nabtoshell_stream_listener* sl,
-    NabtoDeviceConnectionRef ref)
+    NabtoDeviceConnectionRef ref,
+    const char* instance_id,
+    const char* decision,
+    const char* keys)
 {
     pthread_mutex_lock(&sl->activeStreamsMutex);
     struct nabtoshell_active_stream* as = sl->activeStreams;
     while (as != NULL) {
-        if (!atomic_load(&as->closing) && as->patternEngineInitialized &&
+        if (!atomic_load(&as->closing) && as->promptDetectorInitialized &&
             as->connectionRef == ref) {
-            nabtoshell_pattern_engine_dismiss(&as->patternEngine);
+            nabtoshell_prompt_detector_resolve(&as->promptDetector,
+                                               instance_id,
+                                               decision,
+                                               keys);
             break;
         }
         as = as->next;
@@ -191,6 +194,7 @@ int nabtoshell_stream_get_pty_fd(struct nabtoshell_stream_listener* sl,
                                  NabtoDeviceConnectionRef ref)
 {
     int fd = -1;
+
     pthread_mutex_lock(&sl->activeStreamsMutex);
     struct nabtoshell_active_stream* as = sl->activeStreams;
     while (as != NULL) {
@@ -203,6 +207,7 @@ int nabtoshell_stream_get_pty_fd(struct nabtoshell_stream_listener* sl,
         as = as->next;
     }
     pthread_mutex_unlock(&sl->activeStreamsMutex);
+
     return fd;
 }
 
@@ -212,16 +217,17 @@ static void start_listen(struct nabtoshell_stream_listener* sl)
     nabto_device_future_set_callback(sl->future, stream_callback, sl);
 }
 
-static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_callback(NabtoDeviceFuture* future,
+                            NabtoDeviceError ec,
                             void* userData)
 {
     (void)future;
+
     struct nabtoshell_stream_listener* sl = userData;
     if (ec != NABTO_DEVICE_EC_OK) {
         return;
     }
 
-    /* Create active stream state */
     struct nabtoshell_active_stream* as =
         (struct nabtoshell_active_stream*)calloc(1, sizeof(struct nabtoshell_active_stream));
     if (as == NULL) {
@@ -238,13 +244,11 @@ static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
     atomic_init(&as->closing, false);
     atomic_init(&as->closeStarted, false);
 
-    /* Add to linked list */
     pthread_mutex_lock(&sl->activeStreamsMutex);
     as->next = sl->activeStreams;
     sl->activeStreams = as;
     pthread_mutex_unlock(&sl->activeStreamsMutex);
 
-    /* Accept the stream */
     NabtoDeviceFuture* acceptFuture = nabto_device_future_new(sl->device);
     if (acceptFuture == NULL) {
         cleanup_active_stream(as);
@@ -254,12 +258,12 @@ static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
     nabto_device_stream_accept(as->stream, acceptFuture);
     nabto_device_future_set_callback(acceptFuture, stream_accepted, as);
 
-    /* Ready for the next stream */
     sl->newStream = NULL;
     start_listen(sl);
 }
 
-static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_accepted(NabtoDeviceFuture* future,
+                            NabtoDeviceError ec,
                             void* userData)
 {
     struct nabtoshell_active_stream* as = userData;
@@ -270,16 +274,13 @@ static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
         return;
     }
 
-    /* IAM check */
-    NabtoDeviceConnectionRef ref =
-        nabto_device_stream_get_connection_ref(as->stream);
+    NabtoDeviceConnectionRef ref = nabto_device_stream_get_connection_ref(as->stream);
     as->connectionRef = ref;
     if (!nabtoshell_iam_check_access_ref(&as->app->iam, ref, "Terminal:Connect")) {
         start_stream_close_once(as);
         return;
     }
 
-    /* Look up session target */
     struct nabtoshell_session_entry entry;
     if (!nabtoshell_session_get(&as->app->sessionMap, ref, &entry)) {
         printf("No session target set for connection, closing stream" NEWLINE);
@@ -287,7 +288,6 @@ static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
         return;
     }
 
-    /* Copy session target and do setup off the SDK callback thread. */
     strncpy(as->sessionName, entry.sessionName, sizeof(as->sessionName) - 1);
     as->sessionName[sizeof(as->sessionName) - 1] = '\0';
     as->sessionCols = entry.cols;
@@ -301,20 +301,40 @@ static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
     as->setupThreadStarted = true;
 }
 
-static void pattern_stream_callback(const nabtoshell_pattern_match* match,
-                                     void* user_data)
+static void prompt_stream_callback(nabtoshell_prompt_event_type type,
+                                   const nabtoshell_prompt_instance* instance,
+                                   const char* instance_id,
+                                   void* user_data)
 {
     struct nabtoshell_active_stream* as = user_data;
-    if (match != NULL) {
-        printf("[Pattern] pattern_stream_callback: match id=%s, type=%d, actions=%d, ref=%u" NEWLINE,
-               match->id, match->pattern_type, match->action_count, (unsigned)as->connectionRef);
-        nabtoshell_control_stream_send_pattern_match_for_ref(
-            &as->app->controlStreamListener, as->connectionRef, match);
-    } else {
-        printf("[Pattern] pattern_stream_callback: dismiss, ref=%u" NEWLINE,
-               (unsigned)as->connectionRef);
-        nabtoshell_control_stream_send_pattern_dismiss_for_ref(
-            &as->app->controlStreamListener, as->connectionRef);
+
+    switch (type) {
+        case NABTOSHELL_PROMPT_EVENT_PRESENT:
+            if (instance != NULL) {
+                nabtoshell_control_stream_send_prompt_present_for_ref(
+                    &as->app->controlStreamListener,
+                    as->connectionRef,
+                    instance);
+            }
+            break;
+        case NABTOSHELL_PROMPT_EVENT_UPDATE:
+            if (instance != NULL) {
+                nabtoshell_control_stream_send_prompt_update_for_ref(
+                    &as->app->controlStreamListener,
+                    as->connectionRef,
+                    instance);
+            }
+            break;
+        case NABTOSHELL_PROMPT_EVENT_GONE:
+            if (instance_id != NULL) {
+                nabtoshell_control_stream_send_prompt_gone_for_ref(
+                    &as->app->controlStreamListener,
+                    as->connectionRef,
+                    instance_id);
+            }
+            break;
+        default:
+            break;
     }
 }
 
@@ -332,7 +352,6 @@ static void* stream_setup_thread(void* arg)
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
 
-    /* Spawn tmux attach in a PTY. */
     pid_t pid = forkpty(&as->ptyFd, NULL, NULL, &ws);
     if (pid < 0) {
         printf("forkpty failed: %s" NEWLINE, strerror(errno));
@@ -347,24 +366,23 @@ static void* stream_setup_thread(void* arg)
 
     as->childPid = pid;
 
-    /* Initialize per-stream pattern engine */
-    nabtoshell_pattern_engine_init(&as->patternEngine);
-    as->patternEngineInitialized = true;
-    if (as->app->patternConfig) {
-        nabtoshell_pattern_engine_load_config(&as->patternEngine, as->app->patternConfig);
-        if (as->app->patternConfig->agent_count == 1) {
-            nabtoshell_pattern_engine_select_agent(
-                &as->patternEngine, as->app->patternConfig->agents[0].id);
-        }
-        /* Multiple agents: auto-detect from PTY data */
-    }
-    nabtoshell_pattern_engine_set_callback(&as->patternEngine, pattern_stream_callback, as);
+    nabtoshell_prompt_detector_init(&as->promptDetector,
+                                    as->sessionRows > 0 ? as->sessionRows : 48,
+                                    as->sessionCols > 0 ? as->sessionCols : 160);
+    as->promptDetectorInitialized = true;
 
-    /* Open PTY recording file if configured */
+    if (as->app->patternConfig != NULL) {
+        nabtoshell_prompt_detector_load_config(&as->promptDetector,
+                                               as->app->patternConfig);
+    }
+
+    nabtoshell_prompt_detector_set_callback(&as->promptDetector,
+                                            prompt_stream_callback,
+                                            as);
+
     if (as->app->recordPtyFile) {
         as->ptyRecordFile = fopen(as->app->recordPtyFile, "wb");
         if (as->ptyRecordFile) {
-            /* Header: "PTYR" magic | version u32 BE | 8 bytes reserved */
             uint8_t header[16] = {0};
             memcpy(header, "PTYR", 4);
             uint32_t version = htonl(1);
@@ -401,7 +419,6 @@ static void* stream_setup_thread(void* arg)
     return NULL;
 }
 
-/* Stream reader thread: reads from Nabto stream and writes to PTY. */
 static void* stream_reader_thread(void* arg)
 {
     struct nabtoshell_active_stream* as = arg;
@@ -413,6 +430,7 @@ static void* stream_reader_thread(void* arg)
         if (readFuture == NULL) {
             break;
         }
+
         nabto_device_stream_read_some(as->stream, readFuture, buf, sizeof(buf), &readLength);
         NabtoDeviceError ec = nabto_device_future_wait(readFuture);
         nabto_device_future_free(readFuture);
@@ -442,7 +460,8 @@ static bool write_all_fd(int fd, const uint8_t* data, size_t len)
             total += (size_t)written;
             continue;
         }
-        if (written < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (written < 0 &&
+            (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
             continue;
         }
         return false;
@@ -450,7 +469,6 @@ static bool write_all_fd(int fd, const uint8_t* data, size_t len)
     return true;
 }
 
-/* PTY reader thread: reads from PTY and writes to Nabto stream. */
 static void* pty_reader_thread(void* arg)
 {
     struct nabtoshell_active_stream* as = arg;
@@ -462,7 +480,6 @@ static void* pty_reader_thread(void* arg)
             break;
         }
 
-        /* Record raw PTY frame if recording is active */
         if (as->ptyRecordFile) {
             uint32_t frameLen = htonl((uint32_t)n);
             fwrite(&frameLen, 1, 4, as->ptyRecordFile);
@@ -470,12 +487,10 @@ static void* pty_reader_thread(void* arg)
             fflush(as->ptyRecordFile);
         }
 
-        /* Feed PTY output through per-stream pattern detection */
-        if (as->patternEngineInitialized) {
-            nabtoshell_pattern_engine_feed(&as->patternEngine, buf, (size_t)n);
+        if (as->promptDetectorInitialized) {
+            nabtoshell_prompt_detector_feed(&as->promptDetector, buf, (size_t)n);
         }
 
-        /* Write to Nabto stream (blocking) */
         NabtoDeviceFuture* writeFuture = nabto_device_future_new(as->device);
         if (writeFuture == NULL) {
             break;
@@ -490,7 +505,6 @@ static void* pty_reader_thread(void* arg)
     }
 
     atomic_store(&as->closing, true);
-    /* Notify control stream monitor: session may have died. */
     nabtoshell_control_stream_notify(&as->app->controlStreamListener);
     start_stream_close_once(as);
     return NULL;
@@ -507,7 +521,8 @@ static void start_stream_close(struct nabtoshell_active_stream* as)
     nabto_device_future_set_callback(closeFuture, stream_closed, as);
 }
 
-static void stream_closed(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_closed(NabtoDeviceFuture* future,
+                          NabtoDeviceError ec,
                           void* userData)
 {
     (void)ec;
@@ -516,13 +531,6 @@ static void stream_closed(NabtoDeviceFuture* future, NabtoDeviceError ec,
     cleanup_active_stream(as);
 }
 
-/*
- * Blocking cleanup that runs on a detached thread.
- * Waits for the PTY reader thread to exit and reaps the child process,
- * then frees all resources. This MUST NOT run on the SDK event loop
- * thread because pthread_join can deadlock if the PTY reader thread is
- * itself blocked inside nabto_device_future_wait.
- */
 static void* cleanup_thread_func(void* arg)
 {
     struct nabtoshell_active_stream* as = arg;
@@ -564,15 +572,16 @@ static void* cleanup_thread_func(void* arg)
         as->ptyRecordFile = NULL;
     }
 
-    if (as->patternEngineInitialized) {
-        nabtoshell_pattern_engine_free(&as->patternEngine);
-        as->patternEngineInitialized = false;
+    if (as->promptDetectorInitialized) {
+        nabtoshell_prompt_detector_free(&as->promptDetector);
+        as->promptDetectorInitialized = false;
     }
 
     if (as->stream != NULL) {
         nabto_device_stream_free(as->stream);
         as->stream = NULL;
     }
+
     free(as);
     return NULL;
 }
@@ -581,14 +590,12 @@ static void cleanup_active_stream(struct nabtoshell_active_stream* as)
 {
     atomic_store(&as->closing, true);
 
-    /* Remove from session map */
     if (as->stream != NULL && as->app != NULL) {
         NabtoDeviceConnectionRef mapRef =
             nabto_device_stream_get_connection_ref(as->stream);
         nabtoshell_session_remove(&as->app->sessionMap, mapRef);
     }
 
-    /* Remove from the linked list */
     if (as->app != NULL) {
         struct nabtoshell_stream_listener* sl = &as->app->streamListener;
         pthread_mutex_lock(&sl->activeStreamsMutex);
@@ -603,16 +610,10 @@ static void cleanup_active_stream(struct nabtoshell_active_stream* as)
         pthread_mutex_unlock(&sl->activeStreamsMutex);
     }
 
-    /*
-     * Defer blocking operations (pthread_join, waitpid) and final free
-     * to a detached thread so we never block the SDK event loop here.
-     */
     pthread_t cleanupThread;
     if (pthread_create(&cleanupThread, NULL, cleanup_thread_func, as) == 0) {
         pthread_detach(cleanupThread);
     } else {
-        /* Never block SDK callback threads. If cleanup thread creation fails,
-         * mark stream as orphaned and return; this is a fail-safe path. */
         if (as->childPid > 0) {
             kill(as->childPid, SIGTERM);
         }

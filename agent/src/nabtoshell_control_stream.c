@@ -1,23 +1,24 @@
 #include "nabtoshell_control_stream.h"
+
 #include "nabtoshell.h"
-#include "nabtoshell_tmux.h"
+#include "nabtoshell_prompt_protocol.h"
 #include "nabtoshell_stream.h"
-#include "nabtoshell_pattern_matcher.h"
-#include "nabtoshell_pattern_cbor.h"
+#include "nabtoshell_tmux.h"
 
-#include <tinycbor/cbor.h>
-
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <arpa/inet.h>
+
+#include <tinycbor/cbor.h>
 
 #define NEWLINE "\n"
 #define MAX_SESSION_SNAPSHOT_CBOR 65535
 
 static void start_listen(struct nabtoshell_control_stream_listener* csl);
-static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_callback(NabtoDeviceFuture* future,
+                            NabtoDeviceError ec,
                             void* userData);
 static void* monitor_thread_func(void* arg);
 static void* reader_thread_func(void* arg);
@@ -27,11 +28,11 @@ static uint8_t* encode_session_snapshot(const struct nabtoshell_tmux_list* list,
 static bool tmux_lists_equal(const struct nabtoshell_tmux_list* a,
                              const struct nabtoshell_tmux_list* b);
 static void send_to_stream(struct nabtoshell_active_control_stream* cs,
-                           const uint8_t* data, size_t len);
+                           const uint8_t* data,
+                           size_t len);
 static void broadcast_to_all(struct nabtoshell_control_stream_listener* csl,
-                             const uint8_t* data, size_t len);
-
-/* ---- Refcount-based lifetime management ---- */
+                             const uint8_t* data,
+                             size_t len);
 
 static void control_stream_retain(struct nabtoshell_active_control_stream* cs)
 {
@@ -60,8 +61,6 @@ void nabtoshell_control_stream_release(struct nabtoshell_active_control_stream* 
 }
 #endif
 
-/* Collect control streams matching a given connectionRef.
- * Each returned pointer is retained; caller must release after use. */
 #ifdef NABTOSHELL_TESTING
 int nabtoshell_control_stream_collect_targets_for_ref(
     struct nabtoshell_control_stream_listener* csl,
@@ -77,6 +76,7 @@ static int collect_targets_for_ref(
 #endif
 {
     int count = 0;
+
     pthread_mutex_lock(&csl->streamListMutex);
     struct nabtoshell_active_control_stream* cs = csl->activeStreams;
     while (cs != NULL && count < cap) {
@@ -87,10 +87,9 @@ static int collect_targets_for_ref(
         cs = cs->next;
     }
     pthread_mutex_unlock(&csl->streamListMutex);
+
     return count;
 }
-
-/* ---- Public / Module API ---- */
 
 void nabtoshell_control_stream_listener_init(
     struct nabtoshell_control_stream_listener* csl,
@@ -127,13 +126,11 @@ void nabtoshell_control_stream_listener_stop(
         nabto_device_listener_stop(csl->listener);
     }
 
-    /* Signal monitor thread to stop */
     atomic_store(&csl->monitorStop, true);
     pthread_mutex_lock(&csl->notifyMutex);
     pthread_cond_signal(&csl->notifyCond);
     pthread_mutex_unlock(&csl->notifyMutex);
 
-    /* Mark all active control streams for closure */
     pthread_mutex_lock(&csl->streamListMutex);
     struct nabtoshell_active_control_stream* cs = csl->activeStreams;
     while (cs != NULL) {
@@ -155,10 +152,8 @@ void nabtoshell_control_stream_listener_join_monitor(
 void nabtoshell_control_stream_listener_deinit(
     struct nabtoshell_control_stream_listener* csl)
 {
-    /* Join monitor if not already joined */
     nabtoshell_control_stream_listener_join_monitor(csl);
 
-    /* Free all active control streams */
     pthread_mutex_lock(&csl->streamListMutex);
     struct nabtoshell_active_control_stream* cs = csl->activeStreams;
     csl->activeStreams = NULL;
@@ -166,7 +161,7 @@ void nabtoshell_control_stream_listener_deinit(
 
     while (cs != NULL) {
         struct nabtoshell_active_control_stream* next = cs->next;
-        control_stream_release_impl(cs);  /* drop list ownership */
+        control_stream_release_impl(cs);
         cs = next;
     }
 
@@ -187,13 +182,10 @@ void nabtoshell_control_stream_listener_deinit(
 void nabtoshell_control_stream_notify(
     struct nabtoshell_control_stream_listener* csl)
 {
-    /* Non-blocking: just signal the condition variable to wake the monitor. */
     pthread_mutex_lock(&csl->notifyMutex);
     pthread_cond_signal(&csl->notifyCond);
     pthread_mutex_unlock(&csl->notifyMutex);
 }
-
-/* ---- Internal ---- */
 
 static void start_listen(struct nabtoshell_control_stream_listener* csl)
 {
@@ -201,18 +193,16 @@ static void start_listen(struct nabtoshell_control_stream_listener* csl)
     nabto_device_future_set_callback(csl->future, stream_callback, csl);
 }
 
-/*
- * Called on the Nabto SDK event loop thread. MUST NOT block.
- * Accepts the control stream, does IAM check, adds to linked list,
- * then ensures the monitor thread is running.
- */
-static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_accepted(NabtoDeviceFuture* future,
+                            NabtoDeviceError ec,
                             void* userData);
 
-static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_callback(NabtoDeviceFuture* future,
+                            NabtoDeviceError ec,
                             void* userData)
 {
     (void)future;
+
     struct nabtoshell_control_stream_listener* csl = userData;
     if (ec != NABTO_DEVICE_EC_OK) {
         return;
@@ -230,12 +220,11 @@ static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
     cs->device = csl->device;
     cs->app = csl->app;
     atomic_init(&cs->closing, false);
-    atomic_init(&cs->needsPatternSync, true);
+    atomic_init(&cs->needsPromptSync, true);
     atomic_init(&cs->needsSessionSync, true);
     atomic_init(&cs->refCount, 1);
     pthread_mutex_init(&cs->writeMutex, NULL);
 
-    /* Accept the stream */
     NabtoDeviceFuture* acceptFuture = nabto_device_future_new(csl->device);
     if (acceptFuture == NULL) {
         nabto_device_stream_free(cs->stream);
@@ -244,6 +233,7 @@ static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
         start_listen(csl);
         return;
     }
+
     nabto_device_stream_accept(cs->stream, acceptFuture);
     nabto_device_future_set_callback(acceptFuture, stream_accepted, cs);
 
@@ -251,7 +241,8 @@ static void stream_callback(NabtoDeviceFuture* future, NabtoDeviceError ec,
     start_listen(csl);
 }
 
-static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
+static void stream_accepted(NabtoDeviceFuture* future,
+                            NabtoDeviceError ec,
                             void* userData)
 {
     struct nabtoshell_active_control_stream* cs = userData;
@@ -262,23 +253,21 @@ static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
         return;
     }
 
-    /* IAM check */
     NabtoDeviceConnectionRef ref =
         nabto_device_stream_get_connection_ref(cs->stream);
     cs->connectionRef = ref;
+
     if (!nabtoshell_iam_check_access_ref(&cs->app->iam, ref, "Terminal:ListSessions")) {
         control_stream_release_impl(cs);
         return;
     }
 
-    /* Start reader thread before adding to list (non-blocking spawn) */
     if (pthread_create(&cs->readerThread, NULL, reader_thread_func, cs) == 0) {
         cs->readerThreadStarted = true;
     } else {
         printf("Failed to start control stream reader thread" NEWLINE);
     }
 
-    /* Add to linked list (under mutex, quick operation) */
     struct nabtoshell_control_stream_listener* csl =
         &cs->app->controlStreamListener;
     pthread_mutex_lock(&csl->streamListMutex);
@@ -286,64 +275,61 @@ static void stream_accepted(NabtoDeviceFuture* future, NabtoDeviceError ec,
     csl->activeStreams = cs;
     pthread_mutex_unlock(&csl->streamListMutex);
 
-    /* Ensure monitor thread is running and wake it for initial snapshot */
     ensure_monitor_started(csl);
     nabtoshell_control_stream_notify(csl);
 }
 
-/*
- * Read exactly `count` bytes from the control stream.
- * Returns true on success, false on error/close.
- * Uses blocking nabto_device_future_wait (safe on dedicated reader thread).
- */
 static bool read_exactly(struct nabtoshell_active_control_stream* cs,
-                         uint8_t* buf, size_t count)
+                         uint8_t* buf,
+                         size_t count)
 {
     size_t total = 0;
     while (total < count && !atomic_load(&cs->closing)) {
         size_t readLen = 0;
         NabtoDeviceFuture* f = nabto_device_future_new(cs->device);
-        if (f == NULL) return false;
-        nabto_device_stream_read_some(cs->stream, f, buf + total,
-                                       count - total, &readLen);
+        if (f == NULL) {
+            return false;
+        }
+        nabto_device_stream_read_some(cs->stream, f, buf + total, count - total, &readLen);
         NabtoDeviceError ec = nabto_device_future_wait(f);
         nabto_device_future_free(f);
-        if (ec != NABTO_DEVICE_EC_OK) return false;
+        if (ec != NABTO_DEVICE_EC_OK) {
+            return false;
+        }
         total += readLen;
     }
     return total == count;
 }
 
-/*
- * Reader thread: reads length-prefixed CBOR messages from the client
- * on the control stream. Handles "pattern_dismiss" by calling dismiss
- * on the data stream's pattern engine.
- */
 static void* reader_thread_func(void* arg)
 {
     struct nabtoshell_active_control_stream* cs = arg;
 
     while (!atomic_load(&cs->closing)) {
-        /* Read 4-byte big-endian length prefix */
         uint8_t lenBuf[4];
-        if (!read_exactly(cs, lenBuf, 4)) break;
+        if (!read_exactly(cs, lenBuf, 4)) {
+            break;
+        }
 
         uint32_t payloadLen = ((uint32_t)lenBuf[0] << 24) |
                               ((uint32_t)lenBuf[1] << 16) |
                               ((uint32_t)lenBuf[2] << 8) |
                               ((uint32_t)lenBuf[3]);
 
-        if (payloadLen == 0 || payloadLen > 65536) break;
+        if (payloadLen == 0 || payloadLen > 65536) {
+            break;
+        }
 
         uint8_t* payload = malloc(payloadLen);
-        if (payload == NULL) break;
+        if (payload == NULL) {
+            break;
+        }
 
         if (!read_exactly(cs, payload, payloadLen)) {
             free(payload);
             break;
         }
 
-        /* Decode CBOR message (reuse existing decoder with length prefix) */
         size_t framedLen = 4 + payloadLen;
         uint8_t* framed = malloc(framedLen);
         if (framed == NULL) {
@@ -354,18 +340,22 @@ static void* reader_thread_func(void* arg)
         memcpy(framed + 4, payload, payloadLen);
         free(payload);
 
-        bool is_dismiss = false;
-        nabtoshell_pattern_match* match =
-            nabtoshell_pattern_cbor_decode(framed, framedLen, &is_dismiss);
+        nabtoshell_prompt_resolve_message resolve;
+        bool ok = nabtoshell_prompt_protocol_decode_resolve(
+            framed,
+            framedLen,
+            &resolve);
         free(framed);
 
-        if (is_dismiss) {
-            printf("[Control] reader: received pattern_dismiss from client, ref=%u" NEWLINE,
-                   (unsigned)cs->connectionRef);
-            nabtoshell_stream_dismiss_pattern_for_ref(
-                &cs->app->streamListener, cs->connectionRef);
+        if (ok) {
+            nabtoshell_stream_resolve_prompt_for_ref(
+                &cs->app->streamListener,
+                cs->connectionRef,
+                resolve.instance_id,
+                resolve.decision,
+                resolve.keys);
+            nabtoshell_prompt_protocol_free_resolve(&resolve);
         }
-        nabtoshell_pattern_match_free(match);
     }
 
     atomic_store(&cs->closing, true);
@@ -385,11 +375,6 @@ static void ensure_monitor_started(struct nabtoshell_control_stream_listener* cs
     pthread_mutex_unlock(&csl->streamListMutex);
 }
 
-/*
- * Monitor thread: polls tmux session list periodically and on notify,
- * broadcasts changes to all connected control streams. This thread owns
- * all blocking I/O (tmux fork, stream writes), so it is safe to block here.
- */
 static void* monitor_thread_func(void* arg)
 {
     struct nabtoshell_control_stream_listener* csl = arg;
@@ -398,7 +383,6 @@ static void* monitor_thread_func(void* arg)
     bool hasPrev = false;
 
     while (!atomic_load(&csl->monitorStop)) {
-        /* Poll tmux sessions */
         struct nabtoshell_tmux_list currentList;
         memset(&currentList, 0, sizeof(currentList));
         nabtoshell_tmux_list_sessions(&currentList);
@@ -446,9 +430,6 @@ static void* monitor_thread_func(void* arg)
             hasPrev = true;
         }
 
-        /* Replay active pattern match to newly connected control streams.
-         * Each control stream gets the match from the data stream sharing
-         * its connectionRef. */
         {
             struct nabtoshell_active_control_stream* syncSnapshot[MAX_CONTROL_STREAMS];
             int syncCount = 0;
@@ -456,45 +437,45 @@ static void* monitor_thread_func(void* arg)
             pthread_mutex_lock(&csl->streamListMutex);
             struct nabtoshell_active_control_stream* sc = csl->activeStreams;
             while (sc != NULL && syncCount < MAX_CONTROL_STREAMS) {
-                if (atomic_load(&sc->needsPatternSync) &&
+                if (atomic_load(&sc->needsPromptSync) &&
                     !atomic_load(&sc->closing)) {
                     control_stream_retain(sc);
                     syncSnapshot[syncCount++] = sc;
-                    atomic_store(&sc->needsPatternSync, false);
+                    atomic_store(&sc->needsPromptSync, false);
                 }
                 sc = sc->next;
             }
             pthread_mutex_unlock(&csl->streamListMutex);
 
-            if (syncCount > 0) {
-                for (int i = 0; i < syncCount; i++) {
-                    nabtoshell_pattern_match* match =
-                        nabtoshell_stream_copy_active_match_for_ref(
-                            &csl->app->streamListener,
-                            syncSnapshot[i]->connectionRef);
-                    if (match != NULL) {
-                        size_t matchMsgLen = 0;
-                        uint8_t* matchMsg =
-                            nabtoshell_pattern_cbor_encode_match(match, &matchMsgLen);
-                        if (matchMsg != NULL) {
-                            send_to_stream(syncSnapshot[i], matchMsg, matchMsgLen);
-                            free(matchMsg);
-                        }
-                        nabtoshell_pattern_match_free(match);
+            for (int i = 0; i < syncCount; i++) {
+                nabtoshell_prompt_instance* active =
+                    nabtoshell_stream_copy_active_prompt_for_ref(
+                        &csl->app->streamListener,
+                        syncSnapshot[i]->connectionRef);
+
+                if (active != NULL) {
+                    size_t msgLen = 0;
+                    uint8_t* msg =
+                        nabtoshell_prompt_protocol_encode_present(active, &msgLen);
+                    if (msg != NULL) {
+                        send_to_stream(syncSnapshot[i], msg, msgLen);
+                        free(msg);
                     }
-                    control_stream_release_impl(syncSnapshot[i]);
+                    nabtoshell_prompt_instance_free(active);
+                    free(active);
                 }
+
+                control_stream_release_impl(syncSnapshot[i]);
             }
         }
 
-        /* Remove closed streams from the list */
         pthread_mutex_lock(&csl->streamListMutex);
         struct nabtoshell_active_control_stream** pp = &csl->activeStreams;
         while (*pp != NULL) {
             if (atomic_load(&(*pp)->closing)) {
                 struct nabtoshell_active_control_stream* dead = *pp;
                 *pp = dead->next;
-                control_stream_release_impl(dead);  /* drop list ownership */
+                control_stream_release_impl(dead);
             } else {
                 pp = &(*pp)->next;
             }
@@ -503,12 +484,9 @@ static void* monitor_thread_func(void* arg)
         pthread_mutex_unlock(&csl->streamListMutex);
 
         if (!hasStreams && hasPrev) {
-            /* No more control streams connected. Reset state so
-             * we send a full snapshot on the next connection. */
             hasPrev = false;
         }
 
-        /* Wait for notify or timeout */
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
         long ms = NABTOSHELL_SESSION_POLL_INTERVAL_MS;
@@ -544,12 +522,6 @@ static bool tmux_lists_equal(const struct nabtoshell_tmux_list* a,
     return true;
 }
 
-/*
- * Encode a session list as a length-prefixed CBOR message:
- *   [4 bytes: big-endian uint32 payload length][N bytes: CBOR]
- *
- * CBOR format: {"type":"sessions","sessions":[{name, cols, rows, attached}, ...]}
- */
 static uint8_t* encode_session_snapshot(const struct nabtoshell_tmux_list* list,
                                         size_t* outLen)
 {
@@ -597,6 +569,7 @@ static uint8_t* encode_session_snapshot(const struct nabtoshell_tmux_list* list,
         cbor_encoder_close_container(&mapEncoder, &arrayEncoder);
         CborError err = cbor_encoder_close_container(&encoder, &mapEncoder);
         size_t extra = cbor_encoder_get_extra_bytes_needed(&encoder);
+
         if (err == CborNoError && extra == 0) {
             size_t cborLen = cbor_encoder_get_buffer_size(&encoder, cborBuf);
             if (cborLen >= 65536) {
@@ -630,16 +603,14 @@ static uint8_t* encode_session_snapshot(const struct nabtoshell_tmux_list* list,
     return NULL;
 }
 
-/*
- * Write a length-prefixed message to a single control stream.
- * Called from the monitor thread, so blocking writes are safe.
- * The stream's writeMutex serializes I/O and the closing flag guards
- * against writes to freed streams.
- */
 static void send_to_stream(struct nabtoshell_active_control_stream* cs,
-                           const uint8_t* data, size_t len)
+                           const uint8_t* data,
+                           size_t len)
 {
-    if (atomic_load(&cs->closing)) return;
+    if (atomic_load(&cs->closing)) {
+        return;
+    }
+
     pthread_mutex_lock(&cs->writeMutex);
     if (!atomic_load(&cs->closing)) {
         NabtoDeviceFuture* f = nabto_device_future_new(cs->device);
@@ -655,15 +626,9 @@ static void send_to_stream(struct nabtoshell_active_control_stream* cs,
     pthread_mutex_unlock(&cs->writeMutex);
 }
 
-/*
- * Send the encoded message to all connected control streams.
- * Called from the monitor thread, so blocking writes are safe.
- *
- * Takes a snapshot of active stream pointers under the mutex, then
- * iterates the snapshot without holding the list lock.
- */
 static void broadcast_to_all(struct nabtoshell_control_stream_listener* csl,
-                             const uint8_t* data, size_t len)
+                             const uint8_t* data,
+                             size_t len)
 {
     struct nabtoshell_active_control_stream* snapshot[MAX_CONTROL_STREAMS];
     int count = 0;
@@ -684,8 +649,9 @@ static void broadcast_to_all(struct nabtoshell_control_stream_listener* csl,
 }
 
 static void send_to_ref(struct nabtoshell_control_stream_listener* csl,
-                         NabtoDeviceConnectionRef ref,
-                         const uint8_t* data, size_t len)
+                        NabtoDeviceConnectionRef ref,
+                        const uint8_t* data,
+                        size_t len)
 {
     struct nabtoshell_active_control_stream* snapshot[MAX_CONTROL_STREAMS];
 #ifdef NABTOSHELL_TESTING
@@ -694,46 +660,54 @@ static void send_to_ref(struct nabtoshell_control_stream_listener* csl,
 #else
     int count = collect_targets_for_ref(csl, ref, snapshot, MAX_CONTROL_STREAMS);
 #endif
-    printf("[Pattern] send_to_ref: ref=%u, targets=%d, data_len=%zu" NEWLINE,
-           (unsigned)ref, count, len);
+
     for (int i = 0; i < count; i++) {
         send_to_stream(snapshot[i], data, len);
         control_stream_release_impl(snapshot[i]);
     }
 }
 
-void nabtoshell_control_stream_send_pattern_match_for_ref(
+void nabtoshell_control_stream_send_prompt_present_for_ref(
     struct nabtoshell_control_stream_listener* csl,
     NabtoDeviceConnectionRef ref,
-    const nabtoshell_pattern_match* match)
+    const nabtoshell_prompt_instance* instance)
 {
     size_t msgLen = 0;
-    uint8_t* buf = nabtoshell_pattern_cbor_encode_match(match, &msgLen);
+    uint8_t* buf = nabtoshell_prompt_protocol_encode_present(instance, &msgLen);
     if (buf == NULL) {
-        printf("[Pattern] send_pattern_match_for_ref: CBOR encode failed for id=%s" NEWLINE,
-               match ? match->id : "NULL");
         return;
     }
 
-    printf("[Pattern] send_pattern_match_for_ref: id=%s, cbor_len=%zu, ref=%u" NEWLINE,
-           match->id, msgLen, (unsigned)ref);
     send_to_ref(csl, ref, buf, msgLen);
     free(buf);
 }
 
-void nabtoshell_control_stream_send_pattern_dismiss_for_ref(
+void nabtoshell_control_stream_send_prompt_update_for_ref(
     struct nabtoshell_control_stream_listener* csl,
-    NabtoDeviceConnectionRef ref)
+    NabtoDeviceConnectionRef ref,
+    const nabtoshell_prompt_instance* instance)
 {
     size_t msgLen = 0;
-    uint8_t* buf = nabtoshell_pattern_cbor_encode_dismiss(&msgLen);
+    uint8_t* buf = nabtoshell_prompt_protocol_encode_update(instance, &msgLen);
     if (buf == NULL) {
-        printf("[Pattern] send_pattern_dismiss_for_ref: CBOR encode failed" NEWLINE);
         return;
     }
 
-    printf("[Pattern] send_pattern_dismiss_for_ref: ref=%u, cbor_len=%zu" NEWLINE,
-           (unsigned)ref, msgLen);
+    send_to_ref(csl, ref, buf, msgLen);
+    free(buf);
+}
+
+void nabtoshell_control_stream_send_prompt_gone_for_ref(
+    struct nabtoshell_control_stream_listener* csl,
+    NabtoDeviceConnectionRef ref,
+    const char* instance_id)
+{
+    size_t msgLen = 0;
+    uint8_t* buf = nabtoshell_prompt_protocol_encode_gone(instance_id, &msgLen);
+    if (buf == NULL) {
+        return;
+    }
+
     send_to_ref(csl, ref, buf, msgLen);
     free(buf);
 }
