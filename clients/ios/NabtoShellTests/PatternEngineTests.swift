@@ -131,6 +131,45 @@ final class PatternEngineTests: XCTestCase {
         XCTAssertNil(engine.visibleMatch)
     }
 
+    func testImmediatePresentAfterGoneForSameInstanceIsIgnored() {
+        let engine = makeEngine()
+        nowRef = Date(timeIntervalSince1970: 300)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-1", revision: 1, prompt: "Do you want to proceed?"))
+        engine.applyServerGone(instanceId: "inst-1")
+
+        nowRef = Date(timeIntervalSince1970: 300.1)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-1", revision: 2, prompt: "Do you want to proceed?"))
+
+        XCTAssertNil(engine.visibleMatch)
+        XCTAssertNil(engine.activeMatch)
+    }
+
+    func testPresentAfterGoneSuppressionWindowAppears() {
+        let engine = makeEngine()
+        nowRef = Date(timeIntervalSince1970: 400)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-1", revision: 1, prompt: "Do you want to proceed?"))
+        engine.applyServerGone(instanceId: "inst-1")
+
+        nowRef = Date(timeIntervalSince1970: 402)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-1", revision: 2, prompt: "Do you want to proceed?"))
+
+        XCTAssertNotNil(engine.visibleMatch)
+        XCTAssertEqual(engine.visibleMatch?.id, "inst-1")
+    }
+
+    func testDifferentInstanceAfterGoneAppearsImmediately() {
+        let engine = makeEngine()
+        nowRef = Date(timeIntervalSince1970: 500)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-1", revision: 1, prompt: "Do you want to proceed?"))
+        engine.applyServerGone(instanceId: "inst-1")
+
+        nowRef = Date(timeIntervalSince1970: 500.1)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-2", revision: 1, prompt: "Do you want to proceed?"))
+
+        XCTAssertNotNil(engine.visibleMatch)
+        XCTAssertEqual(engine.visibleMatch?.id, "inst-2")
+    }
+
     func testPresentAfterResolveSuppressionWindowAppears() {
         let engine = makeEngine()
         nowRef = Date(timeIntervalSince1970: 200)
@@ -165,6 +204,22 @@ final class PatternEngineTests: XCTestCase {
 
         XCTAssertNotNil(engine.activeMatch)
         XCTAssertEqual(engine.activeMatch?.id, "inst-1")
+    }
+
+    func testGoneWithinDebounceEventuallyClears() {
+        let engine = PatternEngine(minimumVisibleDuration: 0.05)
+        engine.applyServerPresent(makeMatch(instanceId: "inst-1", revision: 1))
+
+        engine.applyServerGone(instanceId: "inst-1")
+
+        XCTAssertNotNil(engine.activeMatch)
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while Date() < deadline {
+            if engine.activeMatch == nil { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertNil(engine.activeMatch)
     }
 
     func testGoneClearsAfterDebounceWindow() {

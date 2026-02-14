@@ -6,10 +6,14 @@ class PatternEngine {
     private(set) var isOverlayHidden = false
     private let minimumVisibleDuration: TimeInterval
     private let resolveSuppressionDuration: TimeInterval
+    private let goneSuppressionDuration: TimeInterval
     private let now: () -> Date
     private var activeSince: Date?
     private var resolvedPromptSignature: String?
     private var resolvedAt: Date?
+    private var goneSuppressedInstanceId: String?
+    private var goneSuppressedAt: Date?
+    private var pendingGoneWorkItem: DispatchWorkItem?
 
     var visibleMatch: PatternMatch? {
         if isOverlayHidden {
@@ -28,13 +32,18 @@ class PatternEngine {
     {
         self.minimumVisibleDuration = minimumVisibleDuration
         self.resolveSuppressionDuration = resolveSuppressionDuration
+        self.goneSuppressionDuration = resolveSuppressionDuration
         self.now = now
     }
 
     func applyServerPresent(_ match: PatternMatch) {
-        if shouldSuppress(match) {
+        if shouldSuppressRePresentAfterGone(instanceId: match.id) {
             return
         }
+        if shouldSuppressResolvedPrompt(match) {
+            return
+        }
+        cancelPendingGoneClear()
         clearResolveSuppression()
         activeMatch = match
         isOverlayHidden = false
@@ -45,6 +54,7 @@ class PatternEngine {
         guard activeMatch?.id == match.id else {
             return
         }
+        cancelPendingGoneClear()
         activeMatch = match
         if activeSince == nil {
             activeSince = now()
@@ -55,9 +65,12 @@ class PatternEngine {
         guard activeMatch?.id == instanceId else {
             return
         }
+        rememberGoneSuppression(instanceId: instanceId)
 
-        if let since = activeSince,
-           now().timeIntervalSince(since) < minimumVisibleDuration {
+        let elapsed = activeSince.map { now().timeIntervalSince($0) } ?? minimumVisibleDuration
+        let remaining = minimumVisibleDuration - elapsed
+        if remaining > 0 {
+            scheduleGoneClear(instanceId: instanceId, after: remaining)
             return
         }
 
@@ -84,15 +97,18 @@ class PatternEngine {
         }
         resolvedPromptSignature = promptSignature(match)
         resolvedAt = now()
+        rememberGoneSuppression(instanceId: instanceId)
         clearActiveState()
     }
 
     func reset() {
         clearResolveSuppression()
+        clearGoneSuppression()
         clearActiveState()
     }
 
     private func clearActiveState() {
+        cancelPendingGoneClear()
         activeMatch = nil
         isOverlayHidden = false
         activeSince = nil
@@ -103,7 +119,17 @@ class PatternEngine {
         resolvedAt = nil
     }
 
-    private func shouldSuppress(_ match: PatternMatch) -> Bool {
+    private func clearGoneSuppression() {
+        goneSuppressedInstanceId = nil
+        goneSuppressedAt = nil
+    }
+
+    private func rememberGoneSuppression(instanceId: String) {
+        goneSuppressedInstanceId = instanceId
+        goneSuppressedAt = now()
+    }
+
+    private func shouldSuppressResolvedPrompt(_ match: PatternMatch) -> Bool {
         guard let signature = resolvedPromptSignature, let resolvedAt else {
             return false
         }
@@ -112,6 +138,36 @@ class PatternEngine {
             return false
         }
         return signature == promptSignature(match)
+    }
+
+    private func shouldSuppressRePresentAfterGone(instanceId: String) -> Bool {
+        guard let suppressed = goneSuppressedInstanceId, let goneAt = goneSuppressedAt else {
+            return false
+        }
+        if now().timeIntervalSince(goneAt) > goneSuppressionDuration {
+            clearGoneSuppression()
+            return false
+        }
+        return suppressed == instanceId
+    }
+
+    private func scheduleGoneClear(instanceId: String, after delay: TimeInterval) {
+        cancelPendingGoneClear()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingGoneWorkItem = nil
+            guard self.activeMatch?.id == instanceId else {
+                return
+            }
+            self.clearActiveState()
+        }
+        pendingGoneWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func cancelPendingGoneClear() {
+        pendingGoneWorkItem?.cancel()
+        pendingGoneWorkItem = nil
     }
 
     private func promptSignature(_ match: PatternMatch) -> String {
