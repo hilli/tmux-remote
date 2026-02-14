@@ -31,7 +31,7 @@ The agent is tool-agnostic. It knows nothing about what runs inside the terminal
 | Port | Name | Framing | Purpose |
 |------|------|---------|---------|
 | 1 | Data stream | None (raw bytes) | Bidirectional PTY relay, identical to SSH |
-| 2 | Control stream | Length-prefixed CBOR | Session state, pattern match events, client dismiss |
+| 2 | Control stream | Length-prefixed CBOR | Session state, prompt lifecycle events, client resolve |
 
 ### CoAP Endpoints
 
@@ -220,7 +220,7 @@ Aliases: `a` for `attach`, `c`/`n`/`new`/`new-session` for `create`.
 ### Subsequent Connections
 
 1. On the device list, the app connects to saved devices in the background.
-2. The control stream (port 2) delivers session lists automatically. The app displays available tmux sessions per device.
+2. The control stream (port 2) delivers session lists and prompt lifecycle events. The app displays available tmux sessions per device and renders prompt overlays from server events.
 3. User taps a session to enter the terminal view.
 4. App sends `POST /terminal/attach` with session name and current terminal dimensions.
 5. App opens a stream via `connection.createStream()` and calls `stream.open()`.
@@ -248,8 +248,10 @@ Client                              Device Agent
   |---- stream data (keystrokes) ------>|
   |         ... interactive session ...  |
   |                                      |
-  |<--- pattern_match (port 2, CBOR) ---|  (when prompt detected)
-  |---- pattern_dismiss (port 2) ------>|  (user tapped action)
+  |<--- pattern_present (port 2, CBOR) -|  (prompt instance appears)
+  |<--- pattern_update (port 2, CBOR) --|  (same instance redraw/update)
+  |<--- pattern_gone (port 2, CBOR) ----|  (instance disappears)
+  |---- pattern_resolve (port 2) ------>|  (user action or dismiss with instance_id)
   |                                      |
   |---- POST /terminal/resize --------->|  (on device rotation)
   |     {cols: 120, rows: 40}            |
@@ -261,70 +263,88 @@ Client                              Device Agent
 
 ---
 
-## 7. Pattern Recognition System
+## 7. Prompt Detection System (V2)
 
 ### 7.1 Design Goals
 
-1. Detect interactive prompts from CLI tools (Claude Code, Aider, Codex) running inside the terminal.
-2. Present mobile-friendly overlay buttons so the user can respond without typing.
-3. Handle the complexity of TUI frameworks that redraw the entire screen on every update.
-4. Keep the agent tool-agnostic: pattern definitions are external JSON, not compiled in.
-5. Minimize control stream traffic: one match event when a prompt appears, one dismiss when it leaves. No cycling.
+1. Detect interactive prompts from terminal UIs using the visible screen state, not historical text tails.
+2. Emit stable prompt lifecycle events with no match/dismiss oscillation during redraws.
+3. Assign a stable prompt instance identity so redraws of the same prompt do not create new overlays.
+4. Keep the iOS app as a renderer/action sender, not a detector.
+5. Keep the agent tool-agnostic: behavior is driven by external JSON rules.
+6. Guarantee deterministic replay behavior regardless of PTY chunk boundaries.
 
 ### 7.2 Architecture Overview
 
-Pattern detection runs on the **agent side**, not the client. The agent processes raw PTY output through a multi-stage pipeline that strips ANSI escape sequences, buffers plain text, and evaluates regex patterns. When a match is found, the agent encodes the match (with resolved action buttons) as CBOR and pushes it to the iOS client via the control stream. The client displays an overlay and, when the user taps a button, sends the keystroke to the data stream and a dismiss message back to the agent on the control stream.
+Prompt detection runs on the agent and is evaluated from canonical terminal snapshots.
 
-```
+```text
 PTY output (raw bytes)
     |
     v
-[ANSI Stripper] -- removes escape sequences, preserves layout
+[VT Parser]
     |
     v
-[Rolling Buffer] -- 8192-char circular buffer with total_appended counter
+[TerminalState Snapshot]
+  - visible lines
+  - cursor position
+  - viewport size
+  - alt-screen flag
     |
     v
-[Pattern Matcher] -- PCRE2 regex, action extraction
+[Prompt Rule Evaluator]
     |
     v
-[Pattern Engine] -- match lifecycle, auto-dismiss, upgrade, dismiss cooldown
+[Prompt Lifecycle FSM]
+  - instance_id
+  - revision
+  - present/update/gone
     |
     v
-[Control Stream] -- CBOR events to/from iOS client
+[Control Stream Protocol V2]
     |
     v
-[iOS Overlay] -- PatternOverlayView with action buttons
+[iOS Overlay]
 ```
 
-The iOS client receives pre-resolved matches from the agent and displays them. It contains no client-side pattern detection logic.
+### 7.3 Canonical Terminal State
 
-### 7.3 Pattern Configuration
+`TerminalState` is the only detector input. It is updated incrementally by parsing VT/ANSI control sequences from PTY bytes.
 
-Patterns are defined in JSON files loaded from `~/.nabtoshell/patterns/` at agent startup. Each file defines one or more agents, each with an ordered list of patterns.
+Each snapshot includes:
+- normalized visible lines (UTF-8 safe)
+- cursor row/column
+- viewport dimensions
+- active screen mode (main/alt)
+- monotonic snapshot sequence
+
+Normalization rules are deterministic and replay-safe:
+- line endings normalized to LF
+- invalid or incomplete UTF-8 never exposed to rules
+- trailing cursor artifacts and purely decorative whitespace are normalized
+
+This eliminates stale prompt copies from detection logic because only the current screen is matched.
+
+### 7.4 Prompt Rule Configuration
+
+Rules are loaded from `~/.nabtoshell/patterns/*.json` at startup.
+
+Config schema is V3 only (single format, no compatibility branches):
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "agents": {
     "claude-code": {
       "name": "Claude Code",
+      "detect": ["claude code", "claude.ai"],
       "patterns": [
         {
           "id": "numbered_prompt",
           "type": "numbered_menu",
-          "regex": "Do you want to .+\\?\\n.*1\\. .+\\n.*2\\. .+",
-          "multi_line": true,
+          "prompt_regex": "Do you want to .+\\?",
+          "item_regex": "^(?:[>*\\-\\u276F]\\s*)?(\\d+)\\.\\s+(.+)$",
           "action_template": { "keys": "{number}" }
-        },
-        {
-          "id": "yes_no_prompt",
-          "type": "yes_no",
-          "regex": "(?:Allow|Proceed).*\\? \\(y/n\\)",
-          "actions": [
-            { "label": "Allow", "keys": "y" },
-            { "label": "Deny", "keys": "n" }
-          ]
         }
       ]
     }
@@ -332,134 +352,64 @@ Patterns are defined in JSON files loaded from `~/.nabtoshell/patterns/` at agen
 }
 ```
 
-**Pattern types:**
+Supported prompt types:
 
-| Type | Actions | Use case |
-|------|---------|----------|
-| `yes_no` | Static from config | "Continue? (y/n)" prompts |
-| `accept_reject` | Static from config | "Accept changes?" prompts |
-| `numbered_menu` | Extracted dynamically | "1. Yes / 2. No / 3. Cancel" menus |
+| Type | Action Source | Example |
+|------|---------------|---------|
+| `yes_no` | Static action list from config | `Continue? (y/n)` |
+| `accept_reject` | Static action list from config | `Apply changes?` |
+| `numbered_menu` | Extracted sequential menu items | `1. Yes / 2. No / 3. Cancel` |
 
-For `numbered_menu`, `action_template.keys` contains `{number}` which is substituted with the item number (e.g., `{number}` becomes `1`, `2`, `3`).
+### 7.5 Prompt Instance Identity
 
-### 7.4 Agent Pipeline: Stage by Stage
+Each detected candidate prompt is assigned:
 
-#### Stage 1: ANSI Stripper
+`instance_id = hash(pattern_id, normalized_prompt, normalized_actions, normalized_anchor)`
 
-**Files:** `nabtoshell_ansi_stripper.h`, `nabtoshell_ansi_stripper.c`
+Where:
+- `normalized_anchor` is a stable location fingerprint from the current snapshot region
+- `normalized_actions` preserves order and key mappings
 
-A byte-level state machine that removes terminal escape sequences while preserving text layout for regex matching. Six states:
+Properties:
+- same prompt across redraws -> same `instance_id`
+- semantically different prompt -> different `instance_id`
 
-| State | Trigger | Behavior |
-|-------|---------|----------|
-| `GROUND` | Default | Pass through printable characters |
-| `ESCAPE` | `0x1B` (ESC) | Await command byte |
-| `ESCAPE_INTERMEDIATE` | ESC + byte in 0x20-0x2F | Consume until final byte (handles `ESC(B` charset select, which is 3 bytes not 2) |
-| `CSI` | `ESC [` | Consume parameter bytes; on final byte, emit whitespace for cursor movement |
-| `OSC` | `ESC ]` | Consume until `ESC \` or BEL (0x07) |
-| `OSC_ESCAPE` | ESC inside OSC | Await `\` to terminate OSC (two-byte `ESC \` terminator) |
+### 7.6 Lifecycle State Machine
 
-**Cursor movement to whitespace conversion:**
+Per data stream, prompt state is managed by a strict FSM.
 
-CSI sequences that move the cursor indicate spacing in TUI frameworks like ink/React (used by Claude Code). Instead of emitting actual space characters, these TUIs use `ESC[nC` (cursor forward) between words and `ESC[row;colH` (cursor position) for line breaks.
+```text
+                 +-------------------------------+
+                 | same instance redraw/update   |
+                 v                               |
+none --present--> active(instance_id, rev=1) ----+
+                    |                |
+                    | resolve        | absent for gone window
+                    v                v
+                resolved         gone(instance_id)
+                    |                |
+                    +------> none <--+
+```
 
-| CSI Final Byte | Meaning | Emitted |
-|---------------|---------|---------|
-| C (0x43) | Cursor Forward | Space |
-| G (0x47) | Cursor Horizontal Absolute | Space |
-| A, B, E, F, H, d, f | Vertical movement / Cursor Position | Newline |
+Rules:
+- `present` is emitted once per new `instance_id`
+- `update` is emitted only for same `instance_id` with changed prompt/actions
+- `gone` is emitted once when instance is absent for configured window
+- client resolve suppresses only that exact `instance_id`
 
-**UTF-8 cross-chunk handling:**
+### 7.7 Control Stream Protocol V2
 
-Terminal data arrives in fixed-size chunks (typically 1024 or 4096 bytes) that can split multi-byte UTF-8 characters. For example, the heavy right-pointing angle `U+276F` is encoded as `E2 9D AF`; a chunk boundary may fall between `E2` and `9D`.
-
-The stripper maintains a `pendingUTF8[4]` buffer. When a chunk ends with an incomplete UTF-8 lead byte, the partial bytes are saved and prepended to the next chunk's output.
-
-**Other transformations:**
-- TAB (0x09): replaced with 4 spaces
-- Control characters (0x00-0x08, 0x0B-0x0C, 0x0E-0x1F): stripped
-- CR (0x0D): normalized to LF (line breaks use LF)
-
-#### Stage 2: Rolling Buffer
-
-**Files:** `nabtoshell_rolling_buffer.h`, `nabtoshell_rolling_buffer.c`
-
-An 8192-byte circular buffer that retains the most recent terminal text. When appending would exceed capacity, the oldest bytes are discarded. The buffer skips leading UTF-8 continuation bytes on overflow to avoid creating invalid sequences.
-
-Key field: `total_appended` is a monotonically increasing counter of all bytes ever appended. It is used by the pattern engine to compute match age and dismiss thresholds. It never resets during a session.
-
-#### Stage 3: Pattern Matcher
-
-**Files:** `nabtoshell_pattern_matcher.h`, `nabtoshell_pattern_matcher.c`
-
-Compiles pattern definitions into PCRE2 regex objects and evaluates them against buffer text. Patterns are evaluated in config order; the first match with resolvable actions wins.
-
-**Regex compilation flags:**
-- Always: `PCRE2_UTF`
-- If `multi_line: true`: `PCRE2_MULTILINE | PCRE2_DOTALL`
-
-**Action resolution by type:**
-
-For `yes_no` and `accept_reject`, actions are copied directly from the pattern definition.
-
-For `numbered_menu`, a two-pass extraction is used:
-
-**Pass 1: Find the last "1." item.** The regex `(\d+)\.\s+(.+)` is applied repeatedly across the entire text-from-match region. Every occurrence of item number 1 has its offset recorded. The last one wins. This is critical because TUI redraws leave multiple prompt copies in the buffer, and the `DOTALL` main regex matches the first (oldest, possibly incomplete) copy.
-
-**Pass 2: Extract sequential items.** Starting from the last "1." offset, items are extracted in strict sequential order (1, 2, 3, ...). Extraction stops when a non-sequential number is encountered or the text ends. For each item, the `{number}` placeholder in the action template is substituted with the actual number.
-
-**Selection indicator stripping:** Before checking if a line starts with a numbered item, leading indicators are stripped: `>`, `*`, `-`, and `U+276F` (heavy right-pointing angle quotation mark, used by Claude Code as the selection cursor).
-
-**Prompt extraction:** For numbered menus, the prompt text (e.g., "Do you want to create bar.txt?") is extracted by scanning the matched text for the last non-empty, non-numbered line before the first item.
-
-#### Stage 4: Pattern Engine
-
-**Files:** `nabtoshell_pattern_engine.h`, `nabtoshell_pattern_engine.c`
-
-The engine orchestrates the full pipeline and manages match lifecycle. It is instantiated per data stream (one per connected client). All state is protected by a `pthread_mutex_t`.
-
-**Constants:**
-
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| `PATTERN_ENGINE_BUFFER_CAPACITY` | 8192 | Rolling buffer size |
-| `PATTERN_ENGINE_MATCH_WINDOW` | 4000 | Bytes scanned for new matches |
-| `PATTERN_ENGINE_AUTO_DISMISS` | 1500 | Bytes before auto-dismiss check triggers |
-
-**`feed()` processing order:**
-
-Each call to `feed()` processes one chunk of PTY output:
-
-1. **ANSI strip** (under mutex): raw bytes through the stripper, output into rolling buffer.
-
-2. **Auto-detect agent**: if no agent is selected and config is loaded, scan the last 512 bytes for tool signatures ("Claude Code", "Aider", "Codex") and auto-select the matching agent.
-
-3. **Numbered menu upgrade check**: if the active match is a `numbered_menu` and fewer than `AUTO_DISMISS` chars have arrived since the match, rescan a small window (`chars_since_match + 500` chars, not the full `MATCH_WINDOW`) for the same pattern. If the rescan finds more actions (items that arrived in a later PTY chunk), upgrade the active match and fire a callback. The small window ensures the regex finds the latest prompt copy, not an older partial one still in the buffer.
-
-4. **Auto-dismiss check**: if the active match is older than `AUTO_DISMISS` chars, rescan a small window (`chars_since_match + 500`). If the same pattern is still present (TUI redraw), reset the match age (no callback). If the pattern is gone (user navigated away), dismiss (one callback). The small scan window, combined with the two-pass item extraction, ensures TUI redraws with multiple buffer copies are handled correctly.
-
-5. **Dismiss cooldown check**: if the match was dismissed, check if enough new content has arrived to clear the cooldown. User-initiated dismiss requires `MATCH_WINDOW` (4000) chars to ensure the old prompt text has scrolled out. Auto-dismiss requires only `AUTO_DISMISS` (1500) chars since the prompt is already gone.
-
-6. **New match search**: if no active match and not in cooldown, scan the last `MATCH_WINDOW` bytes for a new pattern match.
-
-**Callback mechanism:** When match state changes (new match, dismiss, or upgrade), the engine calls `on_change(match, user_data)` outside the mutex. The data stream's callback encodes the match as CBOR and sends it via the control stream.
-
-**Agent selection:** `select_agent()` loads the agent's patterns into the matcher and re-evaluates the existing buffer. This allows late agent selection (e.g., after auto-detection) to immediately find already-visible prompts.
-
-**User dismiss:** `dismiss()` sets `dismissed = true`, `user_dismissed = true`, and records `dismissed_at_position`. This is called when the client sends a `pattern_dismiss` message back via the control stream.
-
-### 7.5 Control Stream Protocol
-
-**Port:** 2 (separate Nabto stream from the data port)
-
+**Port:** 2  
 **Framing:** `[4-byte big-endian uint32 payload length][CBOR payload]`
 
 #### Messages: Agent to Client
 
-**Pattern Match:**
+**Pattern Present:**
 ```cbor
 {
-  "type": "pattern_match",
+  "type": "pattern_present",
+  "instance_id": "8f0d63c1e4...",
+  "revision": 1,
   "pattern_id": "numbered_prompt",
   "pattern_type": "numbered_menu",
   "prompt": "Do you want to create bar.txt?",
@@ -471,12 +421,31 @@ Each call to `feed()` processes one chunk of PTY output:
 }
 ```
 
-**Pattern Dismiss:**
+**Pattern Update:**
 ```cbor
-{ "type": "pattern_dismiss" }
+{
+  "type": "pattern_update",
+  "instance_id": "8f0d63c1e4...",
+  "revision": 2,
+  "prompt": "Do you want to create bar.txt?",
+  "actions": [
+    {"label": "Yes", "keys": "1"},
+    {"label": "Yes, allow all", "keys": "2"},
+    {"label": "No", "keys": "3"},
+    {"label": "Cancel", "keys": "4"}
+  ]
+}
 ```
 
-**Sessions** (polled every 2 seconds):
+**Pattern Gone:**
+```cbor
+{
+  "type": "pattern_gone",
+  "instance_id": "8f0d63c1e4..."
+}
+```
+
+**Sessions** (unchanged):
 ```cbor
 {
   "type": "sessions",
@@ -488,129 +457,92 @@ Each call to `feed()` processes one chunk of PTY output:
 
 #### Messages: Client to Agent
 
-**Pattern Dismiss** (user tapped an action or the dismiss button):
+**Pattern Resolve** (action tap or dismiss):
 ```cbor
-{ "type": "pattern_dismiss" }
+{
+  "type": "pattern_resolve",
+  "instance_id": "8f0d63c1e4...",
+  "decision": "action",
+  "keys": "1"
+}
 ```
 
-A dedicated reader thread per control stream reads these messages. On `pattern_dismiss`, it looks up the data stream by `connectionRef` and calls `nabtoshell_pattern_engine_dismiss()`.
+`decision: "dismiss"` omits `keys`.
 
-### 7.6 iOS Client Integration
+### 7.8 iOS Client Integration
 
-#### Server Event Path (production)
+Server event path:
 
-```
+```text
 Control stream (port 2)
     |
     v
 ConnectionManager.controlReadLoop()
-    -- reads [4-byte length][CBOR], decodes via CBORHelpers
     |
     v
-onPatternEvent callback
-    -- set in TerminalScreen.setupCallbacks()
-    -- filters by deviceId
+decode V2 event (present/update/gone)
     |
     v
-PatternEngine.applyServerMatch() / applyServerDismiss()
-    -- respects activeAgent guard (no overlay if agent pill is off)
-    -- 2-second debounce after user dismiss to prevent oscillation
+PatternEngine.applyServerEvent(instance_id,...)
     |
     v
-@Observable activeMatch property
-    -- drives PatternOverlayView visibility via SwiftUI
+PatternOverlayView state update
 ```
 
-#### User Action Path
+User action path:
 
-```
-User taps action button in PatternOverlayView
+```text
+User taps action/dismiss
     |
-    v
-onAction callback in TerminalScreen
+    +--> write keys to data stream (port 1, action only)
     |
-    +---> nabtoService.writeToStream(action.keys)   [keystroke to PTY via port 1]
-    +---> patternEngine.dismiss()                     [clear overlay, set debounce]
-    +---> connectionManager.sendPatternDismiss()      [CBOR dismiss to agent via port 2]
+    +--> send pattern_resolve(instance_id, decision, keys?) on port 2
 ```
 
-#### Stub Testing
+No client debounce is required. Overlay state follows server lifecycle events.
 
-In `#if DEBUG` builds with `StubNabtoService`, scripted pattern events (match/dismiss) are delivered directly to the `ConnectionManager.onPatternEvent` callback, matching the production code path. No client-side pattern detection logic is needed. Stub scripts define the exact events the agent would push, allowing UI tests to run without a real agent or network.
+### 7.9 Determinism and Replay Guarantees
 
-#### Agent Selection
+The detector must satisfy:
 
-The iOS app shows an "Agent" pill in the terminal toolbar. The user can select an agent (Claude Code, Aider, etc.) or turn detection off. Selection is persisted in `UserDefaults` per device ID and restored on reconnect.
+1. Same PTY byte stream -> same prompt event sequence.
+2. Event sequence is invariant to PTY chunking.
+3. Continuous redraw of one prompt does not emit `gone` then `present` cycles.
+4. Resolving one prompt instance does not suppress a future distinct prompt.
 
-### 7.7 Pattern Overlay UI
+Replay tests use `.ptyr` recordings and chunk-fuzz variants of the same recordings.
 
-**File:** `PatternOverlayView.swift`
+### 7.10 Tuning Parameters
 
-A bottom sheet anchored to the terminal view. Rendered differently per pattern type:
+| Parameter | Purpose |
+|-----------|---------|
+| `gone_window_snapshots` / `gone_window_ms` | Delay before emitting `pattern_gone` |
+| `max_actions` | Cap for resolved action list size |
+| `resolved_ttl_ms` | How long resolved instance suppression is retained |
+| `snapshot_region_policy` | Anchor strategy for stable `instance_id` generation |
 
-- **yes_no / accept_reject:** Full-width buttons, first option bold, "No"/"Deny"/"Reject" in red.
-- **numbered_menu:** Left-aligned label list, scrollable if more than 5 items. "No" items in red.
-- **All types:** "Dismiss" button at the bottom to close without acting.
-
-The overlay disables hit testing on the terminal view underneath (`allowsHitTesting(patternEngine.activeMatch == nil)`), so the user must interact with the overlay or dismiss it.
-
-### 7.8 Tuning Constants and Rationale
-
-| Constant | Value | Why |
-|----------|-------|-----|
-| Buffer capacity (8192) | Holds ~4 full TUI screen redraws | Enough history for the match window plus context for auto-detect |
-| Match window (4000) | ~2 screen redraws | Large enough to catch prompts that appear mid-screen, small enough that old prompts eventually scroll out |
-| Auto-dismiss threshold (1500) | ~0.75 screen redraws | Fast enough to detect when a prompt disappears, slow enough to not re-trigger on every feed |
-| Upgrade scan window (chars_since + 500) | Just the recent text | Avoids matching older partial prompt copies in the buffer |
-| User dismiss cooldown (4000 = MATCH_WINDOW) | Full window flush | Ensures the dismissed prompt text has completely left the match window before re-scanning |
-| Auto dismiss cooldown (1500 = AUTO_DISMISS) | Shorter | The prompt already left the window, so less cooldown needed |
-| Server match debounce (2 seconds) | Calendar time on client | After user taps, suppresses agent-side re-matches during the brief period when the TUI is redrawing the new prompt |
-
-### 7.9 Key Design Decisions
-
-**1. Agent-side detection, not client-side.**
-The agent has access to the raw PTY output before it is sent to the client. Running detection on the agent means the iOS client does not need to bundle PCRE2 or implement a pattern matching pipeline. Pattern configs are managed in one place, and the control stream carries pre-resolved action buttons. The iOS client is a pure display layer for pattern events.
-
-**2. Per-stream pattern engine.**
-Each data stream (PTY connection) gets its own engine instance. This avoids interference between simultaneous sessions and simplifies lifetime management. The engine is initialized in the stream setup thread and freed when the stream closes.
-
-**3. Small scan windows for rescan operations.**
-TUI frameworks redraw the entire screen on every update, leaving multiple copies of the same prompt in the rolling buffer. With `PCRE2_DOTALL`, the regex `Do you want to .+\?\n.*1\. .+\n.*2\. .+` matches greedily from the FIRST prompt copy (oldest, possibly truncated) through the second. Using a small scan window (`chars_since_match + 500`) for upgrade checks and auto-dismiss rescans ensures the regex finds only the latest prompt copy. This is the core insight that prevents action count degradation.
-
-**4. Two-pass numbered item extraction.**
-Even with small scan windows, `extract_menu_items` uses a two-pass approach: first find the offset of the LAST "1." item in the text, then extract sequentially from there. This handles edge cases where filler text between prompt copies contains digit sequences.
-
-**5. Bidirectional control stream for dismiss.**
-When the user taps an action, the keystroke goes to the PTY (port 1) and a dismiss message goes to the agent (port 2). Without this, the agent would see the TUI redraw (new prompt with same text) and keep the old match alive via age-reset, never sending a new match event for the genuinely new prompt.
-
-**6. Dismiss cooldown with separate thresholds.**
-User dismiss requires 4000 chars of cooldown to flush the old prompt text completely from the match window. Auto-dismiss requires only 1500 chars because the prompt has already left the window. This prevents re-triggering on stale text while keeping detection responsive for new prompts.
-
-**7. No force-dismiss.**
-An earlier design had a `MAX_MATCH_AGE` that force-dismissed after N chars regardless of whether the prompt was still visible. This caused dismiss/rematch/dismiss cycling through the control stream, flooding the iOS client with events. The current design uses age-reset: if the prompt is still in the scan window during an auto-dismiss check, the match age is simply reset. The match persists as long as the prompt is actively being redrawn.
-
-### 7.10 Threading Model
+### 7.11 Threading Model
 
 #### Agent Threads per Data Stream
 
 | Thread | Function | Role |
 |--------|----------|------|
-| Setup | `stream_setup_thread` | Spawns PTY, tmux attach, initializes pattern engine |
-| PTY Reader | `pty_reader_thread` | Reads PTY fd, feeds pattern engine, writes to Nabto stream |
+| Setup | `stream_setup_thread` | Spawns PTY, tmux attach, initializes prompt detector |
+| PTY Reader | `pty_reader_thread` | Reads PTY fd, feeds detector, writes PTY bytes to Nabto stream |
 | Stream Reader | `stream_reader_thread` | Reads Nabto stream, writes to PTY fd |
 
-The PTY reader thread is where pattern detection happens. It calls `nabtoshell_pattern_engine_feed()` synchronously for each PTY read. The match callback sends CBOR via the control stream (which has its own `writeMutex`).
+Prompt detection executes in the PTY reader thread (`nabtoshell_prompt_detector_feed()`), and event callbacks send V2 CBOR messages on the control stream.
 
 #### Agent Threads per Control Stream
 
 | Thread | Function | Role |
 |--------|----------|------|
-| Monitor | `monitor_thread_func` | Polls tmux sessions, broadcasts state, replays pattern match to new clients |
-| Reader | `reader_thread_func` | Reads client-sent dismiss messages, calls engine dismiss |
+| Monitor | `monitor_thread_func` | Polls tmux sessions, broadcasts session snapshots, syncs active prompt instances to newly connected control streams |
+| Reader | `reader_thread_func` | Reads `pattern_resolve` from client and forwards resolution to the owning data-stream detector |
 
 #### Critical Rule: No Blocking in Nabto Callbacks
 
-All Nabto SDK callbacks execute on the SDK's core event loop thread. Blocking in a callback freezes the entire SDK. All blocking work (PTY I/O, thread joins, contested mutexes) is deferred to dedicated threads.
+All Nabto SDK callbacks execute on the SDK core event loop thread. Blocking work is deferred to dedicated threads.
 
 ## 8. File Layout
 
@@ -625,12 +557,12 @@ agent/
     nabtoshell_stream.h / .c             # Data stream (port 1), PTY relay
     nabtoshell_control_stream.h / .c     # Control stream (port 2), events
     nabtoshell_tmux.h / .c               # tmux session utilities
-    nabtoshell_pattern_engine.h / .c     # Match lifecycle, feed pipeline
-    nabtoshell_pattern_matcher.h / .c    # PCRE2 regex, action extraction
+    nabtoshell_terminal_state.h / .c     # VT parsing and canonical screen snapshots
+    nabtoshell_prompt_rules.h / .c       # Prompt rule evaluation on snapshots
+    nabtoshell_prompt_lifecycle.h / .c   # Instance FSM: present/update/gone/resolved
+    nabtoshell_prompt_detector.h / .c    # End-to-end detector orchestration
     nabtoshell_pattern_config.h / .c     # JSON config parsing
-    nabtoshell_pattern_cbor.h / .c       # CBOR encode/decode for matches
-    nabtoshell_ansi_stripper.h / .c      # Terminal escape removal
-    nabtoshell_rolling_buffer.h / .c     # Circular text buffer
+    nabtoshell_prompt_protocol.h / .c    # CBOR encode/decode for V2 prompt messages
     nabtoshell_coap_handler.h / .c       # CoAP endpoint scaffold
     nabtoshell_coap_attach.c             # POST /terminal/attach handler
     nabtoshell_coap_create.c             # POST /terminal/create handler
@@ -640,11 +572,12 @@ agent/
     nabtoshell_iam.h / .c                # IAM integration
     nabtoshell_session.h / .c            # Session map
   tests/
-    test_pattern_engine.c                # Pattern engine pipeline tests
-    test_ansi_stripper.c                 # ANSI stripper tests
-    test_pattern_matcher.c               # Pattern matcher tests
+    test_terminal_state.c                # VT parser and snapshot normalization tests
+    test_prompt_rules.c                  # Rule matching and action extraction tests
+    test_prompt_lifecycle.c              # Instance lifecycle FSM tests
+    test_prompt_detector_replay.c        # PTY replay and chunk-fuzz determinism tests
     test_pattern_config.c                # Config parsing tests
-    test_pattern_broadcast.c             # Control stream broadcast tests
+    test_prompt_protocol.c               # Prompt protocol CBOR tests
     test_pattern_routing.c               # Pattern routing tests
 
 clients/
@@ -661,8 +594,8 @@ clients/
         PairingInfo.swift                # Pairing string parser
         SessionInfo.swift                # Session data model
       Patterns/
-        PatternEngine.swift              # Server event handler, agent selection
-        PatternMatch.swift               # Match data model
+        PatternEngine.swift              # V2 server event state (instance_id based)
+        PatternMatch.swift               # Prompt instance model
         PatternConfig.swift              # Config structs
         PatternConfigLoader.swift        # Bundle JSON loader
       Services/
