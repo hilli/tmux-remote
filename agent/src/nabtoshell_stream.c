@@ -211,6 +211,27 @@ int nabtoshell_stream_get_pty_fd(struct nabtoshell_stream_listener* sl,
     return fd;
 }
 
+void nabtoshell_stream_resize_prompt_detector_for_ref(
+    struct nabtoshell_stream_listener* sl,
+    NabtoDeviceConnectionRef ref,
+    int cols,
+    int rows)
+{
+    pthread_mutex_lock(&sl->activeStreamsMutex);
+    struct nabtoshell_active_stream* as = sl->activeStreams;
+    while (as != NULL) {
+        if (!atomic_load(&as->closing) && as->promptDetectorInitialized &&
+            as->connectionRef == ref) {
+            as->sessionCols = (uint16_t)cols;
+            as->sessionRows = (uint16_t)rows;
+            nabtoshell_prompt_detector_resize(&as->promptDetector, rows, cols);
+            break;
+        }
+        as = as->next;
+    }
+    pthread_mutex_unlock(&sl->activeStreamsMutex);
+}
+
 static void start_listen(struct nabtoshell_stream_listener* sl)
 {
     nabto_device_listener_new_stream(sl->listener, sl->future, &sl->newStream);

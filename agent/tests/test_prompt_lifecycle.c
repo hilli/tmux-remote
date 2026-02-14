@@ -67,10 +67,14 @@ START_TEST(test_present_replacement_and_gone)
     ck_assert_int_eq(log.types[1], NABTOSHELL_PROMPT_EVENT_GONE);
     ck_assert_int_eq(log.types[2], NABTOSHELL_PROMPT_EVENT_PRESENT);
 
-    nabtoshell_prompt_lifecycle_process(&lifecycle, NULL, 3);
-    ck_assert_int_eq(log.count, 3);
+    for (int i = 0; i < NABTOSHELL_PROMPT_ABSENCE_SNAPSHOTS - 1; i++) {
+        nabtoshell_prompt_lifecycle_process(&lifecycle, NULL, 3 + (uint64_t)i);
+        ck_assert_int_eq(log.count, 3);
+    }
 
-    nabtoshell_prompt_lifecycle_process(&lifecycle, NULL, 4);
+    nabtoshell_prompt_lifecycle_process(&lifecycle,
+                                        NULL,
+                                        3 + (uint64_t)NABTOSHELL_PROMPT_ABSENCE_SNAPSHOTS - 1);
     ck_assert_int_eq(log.count, 4);
     ck_assert_int_eq(log.types[3], NABTOSHELL_PROMPT_EVENT_GONE);
 

@@ -28,6 +28,7 @@ typedef struct {
     char* cells;
 
     bool in_escape;
+    bool in_escape_charset;
     bool in_csi;
     char csi_buf[128];
     size_t csi_len;
@@ -38,6 +39,10 @@ void nabtoshell_terminal_state_init(nabtoshell_terminal_state* state,
                                     int cols);
 
 void nabtoshell_terminal_state_free(nabtoshell_terminal_state* state);
+
+void nabtoshell_terminal_state_resize(nabtoshell_terminal_state* state,
+                                      int rows,
+                                      int cols);
 
 void nabtoshell_terminal_state_feed(nabtoshell_terminal_state* state,
                                     const uint8_t* data,

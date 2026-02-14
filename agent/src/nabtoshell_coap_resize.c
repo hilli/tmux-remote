@@ -126,6 +126,11 @@ static void handle_request(struct nabtoshell_coap_handler* handler,
         nabtoshell_session_update_size(&app->sessionMap, ref, (uint16_t)cols, (uint16_t)rows);
     }
 
+    nabtoshell_stream_resize_prompt_detector_for_ref(&app->streamListener,
+                                                     ref,
+                                                     (int)cols,
+                                                     (int)rows);
+
     nabto_device_coap_response_set_code(request, 204);
     nabto_device_coap_response_ready(request);
 }

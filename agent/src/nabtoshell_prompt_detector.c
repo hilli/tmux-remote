@@ -170,6 +170,19 @@ void nabtoshell_prompt_detector_feed(nabtoshell_prompt_detector* detector,
     pthread_mutex_unlock(&detector->mutex);
 }
 
+void nabtoshell_prompt_detector_resize(nabtoshell_prompt_detector* detector,
+                                       int rows,
+                                       int cols)
+{
+    if (detector == NULL) {
+        return;
+    }
+
+    pthread_mutex_lock(&detector->mutex);
+    nabtoshell_terminal_state_resize(&detector->terminal_state, rows, cols);
+    pthread_mutex_unlock(&detector->mutex);
+}
+
 void nabtoshell_prompt_detector_resolve(nabtoshell_prompt_detector* detector,
                                         const char* instance_id,
                                         const char* decision,

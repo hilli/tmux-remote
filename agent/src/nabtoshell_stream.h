@@ -69,6 +69,12 @@ void nabtoshell_stream_listener_deinit(struct nabtoshell_stream_listener* sl);
 int nabtoshell_stream_get_pty_fd(struct nabtoshell_stream_listener* sl,
                                  NabtoDeviceConnectionRef ref);
 
+void nabtoshell_stream_resize_prompt_detector_for_ref(
+    struct nabtoshell_stream_listener* sl,
+    NabtoDeviceConnectionRef ref,
+    int cols,
+    int rows);
+
 nabtoshell_prompt_instance* nabtoshell_stream_copy_active_prompt_for_ref(
     struct nabtoshell_stream_listener* sl,
     NabtoDeviceConnectionRef ref);

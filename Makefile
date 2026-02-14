@@ -18,13 +18,11 @@ TEST_ENV      = $(TEST_DIR)/env
 
 all: agent client
 
-agent: $(AGENT_BIN)
-$(AGENT_BIN):
+agent:
 	cd agent && cmake -B _build -G Ninja
 	cmake --build $(AGENT_BUILD)
 
-client: $(CLIENT_BIN)
-$(CLIENT_BIN):
+client:
 	cd clients/cli && cmake -B _build -G Ninja
 	cmake --build $(CLIENT_BUILD)
 

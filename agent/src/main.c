@@ -86,7 +86,7 @@ static bool make_directory(const char* directory);
 static bool make_directories(const char* homeDir);
 static char* get_default_home_dir(void);
 static bool run_agent(const struct args* args);
-static void load_pattern_configs(struct nabtoshell* app);
+static bool load_pattern_configs(struct nabtoshell* app);
 static void print_help(void);
 static int cmp_str_ptr(const void* a, const void* b);
 static bool merge_agent_into_config(nabtoshell_pattern_config* merged,
@@ -197,6 +197,14 @@ bool run_agent(const struct args* args)
     snprintf(buffer, sizeof(buffer), "%s/state/iam_state.json", args->homeDir);
     app.iamStateFile = strdup(buffer);
 
+    /* Load pattern detection configs before starting listeners/device. */
+    if (!load_pattern_configs(&app)) {
+        nabtoshell_deinit(&app);
+        nabto_device_free(globalDevice);
+        globalDevice = NULL;
+        return false;
+    }
+
     /* Load device config */
     struct device_config deviceConfig;
     device_config_init(&deviceConfig);
@@ -276,9 +284,6 @@ bool run_agent(const struct args* args)
     /* Initialize stream listeners */
     nabtoshell_stream_listener_init(&app.streamListener, app.device, &app);
     nabtoshell_control_stream_listener_init(&app.controlStreamListener, app.device, &app);
-
-    /* Load pattern detection configs (activates per-stream on connect) */
-    load_pattern_configs(&app);
 
     /* Print banner */
     char* deviceFingerprint = NULL;
@@ -544,14 +549,14 @@ char* get_default_home_dir(void)
 /*
  * Load pattern config files from ~/.nabtoshell/patterns/ (all .json files).
  */
-void load_pattern_configs(struct nabtoshell* app)
+bool load_pattern_configs(struct nabtoshell* app)
 {
     char dirPath[512];
     snprintf(dirPath, sizeof(dirPath), "%s/patterns", app->homeDir);
 
     DIR* dir = opendir(dirPath);
     if (dir == NULL) {
-        return;
+        return true;
     }
 
     if (app->patternConfig != NULL) {
@@ -583,7 +588,7 @@ void load_pattern_configs(struct nabtoshell* app)
 
     if (fileCount == 0) {
         free(fileNames);
-        return;
+        return true;
     }
 
     qsort(fileNames, fileCount, sizeof(char*), cmp_str_ptr);
@@ -594,17 +599,21 @@ void load_pattern_configs(struct nabtoshell* app)
             free(fileNames[i]);
         }
         free(fileNames);
-        return;
+        printf("Error: out of memory while loading pattern configs" NEWLINE);
+        return false;
     }
 
     bool versionSet = false;
+    bool ok = true;
     for (size_t i = 0; i < fileCount; i++) {
         char filePath[512];
         snprintf(filePath, sizeof(filePath), "%s/%s", dirPath, fileNames[i]);
 
         FILE* f = fopen(filePath, "r");
         if (f == NULL) {
-            continue;
+            printf("Error: failed to open pattern config %s" NEWLINE, filePath);
+            ok = false;
+            break;
         }
 
         fseek(f, 0, SEEK_END);
@@ -613,52 +622,71 @@ void load_pattern_configs(struct nabtoshell* app)
 
         if (fsize <= 0 || fsize > 1024 * 1024) {
             fclose(f);
-            continue;
+            printf("Error: invalid pattern config size in %s" NEWLINE, filePath);
+            ok = false;
+            break;
         }
 
         char* json = malloc(fsize + 1);
         if (json == NULL) {
             fclose(f);
-            continue;
+            printf("Error: out of memory while reading pattern config %s" NEWLINE,
+                   filePath);
+            ok = false;
+            break;
         }
         size_t readLen = fread(json, 1, fsize, f);
         fclose(f);
+        if (readLen != (size_t)fsize) {
+            free(json);
+            printf("Error: failed to read pattern config %s" NEWLINE, filePath);
+            ok = false;
+            break;
+        }
         json[readLen] = '\0';
 
         nabtoshell_pattern_config* cfg = nabtoshell_pattern_config_parse(json, readLen);
         free(json);
 
         if (cfg == NULL) {
-            printf("Warning: failed to parse pattern config %s" NEWLINE, filePath);
-            continue;
+            printf("Error: failed to parse pattern config %s" NEWLINE, filePath);
+            ok = false;
+            break;
         }
 
         if (!versionSet) {
             merged->version = cfg->version;
             versionSet = true;
         } else if (cfg->version != merged->version) {
-            printf("Warning: pattern config version mismatch in %s (expected %d, got %d; skipping file)" NEWLINE,
+            printf("Error: pattern config version mismatch in %s (expected %d, got %d)" NEWLINE,
                    filePath, merged->version, cfg->version);
             nabtoshell_pattern_config_free(cfg);
-            continue;
+            ok = false;
+            break;
         }
 
         for (int ai = 0; ai < cfg->agent_count; ai++) {
             nabtoshell_agent_config* agent = &cfg->agents[ai];
 
             if (has_duplicate_pattern_ids(agent)) {
-                printf("Warning: duplicate pattern ids for agent '%s' in %s (skipping agent)" NEWLINE,
+                printf("Error: duplicate pattern ids for agent '%s' in %s" NEWLINE,
                        agent->id ? agent->id : "(null)", filePath);
-                continue;
+                ok = false;
+                break;
             }
 
             if (!merge_agent_into_config(merged, agent)) {
-                printf("Warning: duplicate or invalid agent '%s' in %s (skipping agent)" NEWLINE,
+                printf("Error: duplicate or invalid agent '%s' in %s" NEWLINE,
                        agent->id ? agent->id : "(null)", filePath);
+                ok = false;
+                break;
             }
         }
 
         nabtoshell_pattern_config_free(cfg);
+        if (!ok) {
+            break;
+        }
     }
 
     for (size_t i = 0; i < fileCount; i++) {
@@ -666,13 +694,22 @@ void load_pattern_configs(struct nabtoshell* app)
     }
     free(fileNames);
 
+    if (!ok) {
+        nabtoshell_pattern_config_free(merged);
+        return false;
+    }
+
     if (merged->agent_count > 0) {
         app->patternConfig = merged;
         printf("Pattern config loaded (%d agents), activates per-session" NEWLINE,
                merged->agent_count);
     } else {
         nabtoshell_pattern_config_free(merged);
+        printf("Error: no valid agents loaded from pattern config files" NEWLINE);
+        return false;
     }
+
+    return true;
 }
 
 static int cmp_str_ptr(const void* a, const void* b)

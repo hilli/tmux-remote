@@ -50,6 +50,10 @@ void nabtoshell_prompt_detector_feed(nabtoshell_prompt_detector* detector,
                                      const uint8_t* data,
                                      size_t len);
 
+void nabtoshell_prompt_detector_resize(nabtoshell_prompt_detector* detector,
+                                       int rows,
+                                       int cols);
+
 void nabtoshell_prompt_detector_resolve(nabtoshell_prompt_detector* detector,
                                         const char* instance_id,
                                         const char* decision,
