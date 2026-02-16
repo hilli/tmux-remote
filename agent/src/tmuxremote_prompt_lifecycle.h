@@ -7,7 +7,7 @@
 #include "tmuxremote_prompt.h"
 #include "tmuxremote_prompt_rules.h"
 
-#define TMUXREMOTE_PROMPT_ABSENCE_SNAPSHOTS 1
+#define TMUXREMOTE_PROMPT_ABSENCE_SNAPSHOTS 2
 
 typedef void (*tmuxremote_prompt_lifecycle_callback)(
     tmuxremote_prompt_event_type type,

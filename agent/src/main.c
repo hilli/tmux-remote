@@ -86,11 +86,60 @@ static bool make_directories(const char* homeDir);
 static char* get_default_home_dir(void);
 static bool run_agent(const struct args* args);
 static bool load_pattern_configs(struct tmuxremote* app);
+static bool load_default_pattern_config(struct tmuxremote* app);
 static void print_help(void);
 static int cmp_str_ptr(const void* a, const void* b);
 static bool merge_agent_into_config(tmuxremote_pattern_config* merged,
                                     tmuxremote_agent_config* agent);
 static bool has_duplicate_pattern_ids(const tmuxremote_agent_config* agent);
+
+static const char* TMUXREMOTE_DEFAULT_PATTERN_CONFIG_JSON =
+    "{\n"
+    "  \"version\": 3,\n"
+    "  \"agents\": {\n"
+    "    \"claude-code\": {\n"
+    "      \"name\": \"Claude Code\",\n"
+    "      \"rules\": [\n"
+    "        {\n"
+    "          \"id\": \"numbered_prompt\",\n"
+    "          \"type\": \"numbered_menu\",\n"
+    "          \"prompt_regex\": \"Do you want to .+\\\\?\",\n"
+    "          \"option_regex\": \"^\\\\s*([0-9]+)\\\\.\\\\s+(.+)$\",\n"
+    "          \"action_template\": { \"keys\": \"{number}\" },\n"
+    "          \"max_scan_lines\": 8\n"
+    "        },\n"
+    "        {\n"
+    "          \"id\": \"yes_no_prompt\",\n"
+    "          \"type\": \"yes_no\",\n"
+    "          \"prompt_regex\": \"(?:Allow|Proceed|Run|Execute).*\\\\? \\\\(y\\\\/n\\\\)\",\n"
+    "          \"actions\": [\n"
+    "            { \"label\": \"Allow\", \"keys\": \"y\" },\n"
+    "            { \"label\": \"Deny\", \"keys\": \"n\" }\n"
+    "          ],\n"
+    "          \"max_scan_lines\": 4\n"
+    "        },\n"
+    "        {\n"
+    "          \"id\": \"diff_review\",\n"
+    "          \"type\": \"accept_reject\",\n"
+    "          \"prompt_regex\": \"Do you want to apply these changes\",\n"
+    "          \"actions\": [\n"
+    "            { \"label\": \"Accept\", \"keys\": \"y\" },\n"
+    "            { \"label\": \"Reject\", \"keys\": \"n\" }\n"
+    "          ],\n"
+    "          \"max_scan_lines\": 4\n"
+    "        }\n"
+    "      ]\n"
+    "    },\n"
+    "    \"codex\": {\n"
+    "      \"name\": \"OpenAI Codex CLI\",\n"
+    "      \"rules\": []\n"
+    "    },\n"
+    "    \"aider\": {\n"
+    "      \"name\": \"Aider\",\n"
+    "      \"rules\": []\n"
+    "    }\n"
+    "  }\n"
+    "}\n";
 
 int main(int argc, char** argv)
 {
@@ -595,7 +644,7 @@ bool load_pattern_configs(struct tmuxremote* app)
 
     DIR* dir = opendir(dirPath);
     if (dir == NULL) {
-        return true;
+        return load_default_pattern_config(app);
     }
 
     if (app->patternConfig != NULL) {
@@ -627,7 +676,7 @@ bool load_pattern_configs(struct tmuxremote* app)
 
     if (fileCount == 0) {
         free(fileNames);
-        return true;
+        return load_default_pattern_config(app);
     }
 
     qsort(fileNames, fileCount, sizeof(char*), cmp_str_ptr);
@@ -748,6 +797,31 @@ bool load_pattern_configs(struct tmuxremote* app)
         return false;
     }
 
+    return true;
+}
+
+static bool load_default_pattern_config(struct tmuxremote* app)
+{
+    if (app->patternConfig != NULL) {
+        tmuxremote_pattern_config_free(app->patternConfig);
+        app->patternConfig = NULL;
+    }
+
+    size_t jsonLen = strlen(TMUXREMOTE_DEFAULT_PATTERN_CONFIG_JSON);
+    tmuxremote_pattern_config* cfg =
+        tmuxremote_pattern_config_parse(TMUXREMOTE_DEFAULT_PATTERN_CONFIG_JSON,
+                                        jsonLen);
+    if (cfg == NULL || cfg->agent_count <= 0) {
+        if (cfg != NULL) {
+            tmuxremote_pattern_config_free(cfg);
+        }
+        printf("Error: failed to parse embedded default pattern config" NEWLINE);
+        return false;
+    }
+
+    app->patternConfig = cfg;
+    printf("Pattern config loaded from embedded defaults (%d agents)" NEWLINE,
+           cfg->agent_count);
     return true;
 }
 
