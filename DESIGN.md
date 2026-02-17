@@ -581,87 +581,10 @@ Prompt detection executes in the PTY reader thread (`tmuxremote_prompt_detector_
 | Monitor | `monitor_thread_func` | Polls tmux sessions, broadcasts session snapshots, syncs active prompt instances to newly connected control streams |
 | Reader | `reader_thread_func` | Reads `pattern_resolve` from client and forwards resolution to the owning data-stream detector |
 
+#### Why Two Threads per Data Stream
+
+The PTY relay uses two blocking threads rather than a single async event loop because the Nabto Embedded SDK and POSIX have incompatible async models. The PTY is a file descriptor (async via `select`/`poll`/`kqueue`). The Nabto stream is future-based (async via `nabto_device_future_wait` or `nabto_device_future_set_callback`), with no exposed file descriptor. There is no SDK API to add external fds to the Nabto event loop, and no way to obtain a pollable fd from a Nabto stream. A single-threaded bridge would require a signaling pipe between the Nabto callback and a `poll` loop, adding complexity with no practical benefit. Two blocking threads, one per source, is the simplest correct approach.
+
 #### Critical Rule: No Blocking in Nabto Callbacks
 
 All Nabto SDK callbacks execute on the SDK core event loop thread. Blocking work is deferred to dedicated threads.
-
-## 8. File Layout
-
-```
-agent/
-  src/
-    main.c                               # Entry point, argument parsing
-    tmuxremote.h / .c                    # Main app struct, startup, shutdown
-    tmuxremote_banner.h / .c             # Startup banner output
-    tmuxremote_device.h / .c             # Nabto device setup
-    tmuxremote_init.h / .c               # --init, --add-user, --remove-user logic
-    tmuxremote_stream.h / .c             # Data stream (port 1), PTY relay
-    tmuxremote_control_stream.h / .c     # Control stream (port 2), events
-    tmuxremote_tmux.h / .c               # tmux session utilities
-    tmuxremote_terminal_state.h / .c     # VT parsing and canonical screen snapshots
-    tmuxremote_prompt_rules.h / .c       # Prompt rule evaluation on snapshots
-    tmuxremote_prompt_lifecycle.h / .c   # Instance FSM: present/update/gone/resolved
-    tmuxremote_prompt_detector.h / .c    # End-to-end detector orchestration
-    tmuxremote_pattern_config.h / .c     # JSON config parsing
-    tmuxremote_prompt_protocol.h / .c    # Framed-CBOR protocol for V2 control-stream prompt messages
-    tmuxremote_coap_handler.h / .c       # CoAP endpoint scaffold
-    tmuxremote_coap_attach.c             # POST /terminal/attach handler
-    tmuxremote_coap_create.c             # POST /terminal/create handler
-    tmuxremote_coap_resize.c             # POST /terminal/resize handler
-    tmuxremote_coap_sessions.c           # GET /terminal/sessions handler
-    tmuxremote_coap_status.c             # GET /terminal/status handler
-    tmuxremote_iam.h / .c                # IAM integration
-    tmuxremote_session.h / .c            # Session map
-  tests/
-    test_terminal_state.c                # VT parser and snapshot normalization tests
-    test_prompt_rules.c                  # Rule matching and action extraction tests
-    test_prompt_lifecycle.c              # Instance lifecycle FSM tests
-    test_prompt_detector_replay.c        # PTY replay and chunk-fuzz determinism tests
-    test_pattern_config.c                # Config parsing tests
-    test_prompt_protocol.c               # Framed-CBOR prompt protocol tests
-    test_pattern_routing.c               # Pattern routing tests
-
-clients/
-  cli/
-    src/                                 # CLI client (C)
-  ios/
-    TmuxRemote/
-      App/
-        TmuxRemoteApp.swift              # App entry point
-        RootView.swift                   # Root navigation
-        AppState.swift                   # App-wide state
-      Models/
-        DeviceBookmark.swift             # Device bookmark model
-        PairingInfo.swift                # Pairing string parser
-        SessionInfo.swift                # Session data model
-      Patterns/
-        PatternEngine.swift              # V2 server event state (instance_id based)
-        PatternMatch.swift               # Prompt instance model
-        PatternConfig.swift              # Config structs
-        PatternConfigLoader.swift        # Bundle JSON loader
-      Services/
-        ConnectionManager.swift          # Control stream transport + framed-CBOR read/write
-        CBORHelpers.swift                # CBOR encoding/decoding
-        NabtoService.swift               # Nabto connection management
-        BookmarkStore.swift              # Device bookmark persistence
-        KeychainService.swift            # Keychain for private keys
-        ReconnectLogic.swift             # Auto-reconnect on disconnect
-        ResumeLogic.swift                # Session resume on app foreground
-        AppLog.swift                     # Debug logging
-      Views/
-        DeviceListView.swift             # Device list and session selection
-        PairingView.swift                # Pairing string input
-        WelcomeView.swift                # First-launch welcome
-        TerminalScreen.swift             # Main terminal view, pattern integration
-        PatternOverlayView.swift         # Action button overlay
-        TerminalViewWrapper.swift        # SwiftTerm UIKit bridge
-        KeyboardAccessoryView.swift      # Terminal keyboard accessory bar
-      Resources/
-        patterns.json                    # Bundled pattern definitions
-
-~/.tmux-remote/
-  config/device.json                     # Product/device IDs + KeychainKey preference
-  state/iam_state.json                   # Paired users
-  keys/<productId>_<deviceId>.key        # Device private key (file-storage mode only)
-  patterns/*.json                        # Pattern definitions
-```
