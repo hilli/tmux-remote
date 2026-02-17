@@ -1,0 +1,858 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0DCD1F1E793DC13C4002BE05 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 1234516976BDA5928B5A5CED /* SwiftTerm */; };
+		0F1C54D71EC9B783EF8C2EB2 /* StubScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F4C8FCDF6A2304EB569B19 /* StubScript.swift */; };
+		1BC7B968C3BD109185FE5E41 /* NabtoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E822E53A721BDD0A67FDDECC /* NabtoService.swift */; };
+		289B84B7EE443C046BB7ED8C /* PatternOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 619749808317F421E7A97DD8 /* PatternOverlayView.swift */; };
+		2C86FAD5AE903AF9541DD534 /* SessionInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37BADA15D7B27866E3793F60 /* SessionInfo.swift */; };
+		33D4471BC92D6D3806B3B7D0 /* BookmarkStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A5A286DCE5E93B7D7D16B62 /* BookmarkStoreTests.swift */; };
+		3498C4221EFA3D5859568E91 /* ResumeLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81EDD85C68E9C5E1150DBC6D /* ResumeLogicTests.swift */; };
+		35E1F9B74D0CB50F08D9C51A /* Pods_TmuxRemoteTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 54A9CB4C3F2AD65F06B1E592 /* Pods_TmuxRemoteTests.framework */; };
+		38C4783437EB58745AA6E556 /* CBORHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E719E515A45E922C16282C96 /* CBORHelpersTests.swift */; };
+		3FA998C454E56F939F596356 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A1D462A4AE2ABD27B9BBEB /* RootView.swift */; };
+		47259881A61C5B7B10A04976 /* PairingInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B49054912B1A4E27A490028E /* PairingInfo.swift */; };
+		524AAB841FE8ADF85BE7FDE5 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF4DA2C28EC0F0F3FA2DC5CC /* AppLog.swift */; };
+		52D301E9877B3B6023BA94D8 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30AA5FEEBDD6667FB8FFEEC3 /* ConnectionManager.swift */; };
+		54AB727155F1206640CA910C /* PatternOverlayUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C915F534380568C8CE2759 /* PatternOverlayUITests.swift */; };
+		54E5CD70F8C3F70026AFC396 /* ResumeLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FA57C685C37D06BF73696A /* ResumeLogic.swift */; };
+		564BB7061BB549DE89A312E1 /* PatternConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 109AD9F94883F8CFC2DDD6E4 /* PatternConfigTests.swift */; };
+		5E0E1C6947F31A68A049AB4B /* TmuxRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F120B9A8214D220D698E324 /* TmuxRemoteApp.swift */; };
+		690755C24CF470ECC561AAF9 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D0D3EA55F374AF37A94DB9 /* PairingView.swift */; };
+		7317F4EB427491D8DE2C3B92 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 381DBEFC8DEF6F203547C22A /* Theme.swift */; };
+		7AFC6A85CC681595E66C8418 /* PatternEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEDC76BF121B74BA92E597FD /* PatternEngineTests.swift */; };
+		84D0C544DAFC277948D0D6BA /* TmuxRemoteUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB5C78E6B47E14E8EA9A9C35 /* TmuxRemoteUITests.swift */; };
+		86286FFA2D6A57E5FD794F82 /* KeyboardAccessoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1225827049E50C0AFD2A526 /* KeyboardAccessoryView.swift */; };
+		8F6D698172B3879CFC60A5B1 /* TerminalViewWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE618A969418659C69C9DAD0 /* TerminalViewWrapper.swift */; };
+		9020955759CFD511B19F3FD1 /* ReconnectLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D21BBFA3A7C0DEA81634E25 /* ReconnectLogicTests.swift */; };
+		95D238D673B9AB979C863D51 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B81343772CFF9D3D3EC2E52 /* WelcomeView.swift */; };
+		96687D32282C663E88F895D3 /* ReconnectLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8113888EE66C9D841F6A804 /* ReconnectLogic.swift */; };
+		97B1A47DB4E6DBDAACDEA5D8 /* BookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C067CB983A54230E2C36972E /* BookmarkStore.swift */; };
+		9AE8AE18B25780DD4D672D4B /* CBORHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412C928B74ABC55ADE23D2F6 /* CBORHelpers.swift */; };
+		9F93B83CC9C8C9FDAB303364 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E2C981FD1AA2A234DD78CA70 /* Assets.xcassets */; };
+		AE68B85DB44B2E424F0DF186 /* PairingInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C51A836B93A7A41901B6B5 /* PairingInfoTests.swift */; };
+		B15683B337060F71E495F7F8 /* NabtoServiceDisconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C6F0617F1E6D5E21C5066D0 /* NabtoServiceDisconnectTests.swift */; };
+		B3C2EADD0DB976F9C8692F30 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53BAAD994FAE5F4B32501AE8 /* SettingsView.swift */; };
+		BA11EC8104B389FE237229CB /* TerminalScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFACB55BE57580446BA8E506 /* TerminalScreen.swift */; };
+		BB078FAFCACEDB9ED8F86F59 /* patterns.json in Resources */ = {isa = PBXBuildFile; fileRef = DE25E2FD51F8F1AFEDE72CB3 /* patterns.json */; };
+		BCCA23A2588D068CE64444D6 /* KeychainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DAB0B9B789255406765828B /* KeychainService.swift */; };
+		BFB0CF34C1182ECC6D17026C /* DeviceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B6A97338CC8DD1F5085ADA /* DeviceListView.swift */; };
+		C02C5C96E3CF4CEFB0BF7993 /* PatternEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BAFA2860E521016A8F94EA1 /* PatternEngine.swift */; };
+		D15324423045D39F3AA04272 /* PatternConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D402CAB889BD19787BEEFE3B /* PatternConfig.swift */; };
+		D72775ACB4D5F62DD6AADBC5 /* PatternMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA114FE123318A60EAE93D5 /* PatternMatch.swift */; };
+		DBE28DB5427DD2CDE71B0D50 /* StubNabtoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A99DD85A73865164CBAF048 /* StubNabtoService.swift */; };
+		EA74DCF62B1AB756BB63300B /* DeviceBookmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E3D6A87FB3AA5227279D65 /* DeviceBookmark.swift */; };
+		EB31BBD8C6A39E6D135A8197 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 655AA43E1FF8AFE3611F51C8 /* AppState.swift */; };
+		ED34AF5230800DC7C2AB7E6D /* Pods_TmuxRemote.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 397838CBF536CF8AFF8D32DC /* Pods_TmuxRemote.framework */; };
+		EF94AA54273C3075A100EDD0 /* PatternConfigLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7723030D8EA822119343AE7D /* PatternConfigLoader.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D3450A98165BDAFAB80ECF91 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AC1D504C9B56B105A6C925BF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D233DBF04952F24A32702BDC;
+			remoteInfo = TmuxRemote;
+		};
+		EBC9CD366D3562CBFA400BC1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AC1D504C9B56B105A6C925BF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D233DBF04952F24A32702BDC;
+			remoteInfo = TmuxRemote;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		01E3D6A87FB3AA5227279D65 /* DeviceBookmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceBookmark.swift; sourceTree = "<group>"; };
+		0EA114FE123318A60EAE93D5 /* PatternMatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternMatch.swift; sourceTree = "<group>"; };
+		109AD9F94883F8CFC2DDD6E4 /* PatternConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternConfigTests.swift; sourceTree = "<group>"; };
+		1F5F42A77B0310E87DC7C5E4 /* Pods-TmuxRemoteTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TmuxRemoteTests.release.xcconfig"; path = "Target Support Files/Pods-TmuxRemoteTests/Pods-TmuxRemoteTests.release.xcconfig"; sourceTree = "<group>"; };
+		30AA5FEEBDD6667FB8FFEEC3 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
+		37BADA15D7B27866E3793F60 /* SessionInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionInfo.swift; sourceTree = "<group>"; };
+		381DBEFC8DEF6F203547C22A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		397838CBF536CF8AFF8D32DC /* Pods_TmuxRemote.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_TmuxRemote.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		3B81343772CFF9D3D3EC2E52 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		3D21BBFA3A7C0DEA81634E25 /* ReconnectLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectLogicTests.swift; sourceTree = "<group>"; };
+		412C928B74ABC55ADE23D2F6 /* CBORHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CBORHelpers.swift; sourceTree = "<group>"; };
+		4C588D365138D7556A0E7D39 /* Pods-TmuxRemoteTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TmuxRemoteTests.debug.xcconfig"; path = "Target Support Files/Pods-TmuxRemoteTests/Pods-TmuxRemoteTests.debug.xcconfig"; sourceTree = "<group>"; };
+		53BAAD994FAE5F4B32501AE8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		54A9CB4C3F2AD65F06B1E592 /* Pods_TmuxRemoteTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_TmuxRemoteTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		57083CDD2BA43AC727EBFF18 /* Pods-TmuxRemote.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TmuxRemote.release.xcconfig"; path = "Target Support Files/Pods-TmuxRemote/Pods-TmuxRemote.release.xcconfig"; sourceTree = "<group>"; };
+		5BAFA2860E521016A8F94EA1 /* PatternEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternEngine.swift; sourceTree = "<group>"; };
+		5DAB0B9B789255406765828B /* KeychainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainService.swift; sourceTree = "<group>"; };
+		619749808317F421E7A97DD8 /* PatternOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternOverlayView.swift; sourceTree = "<group>"; };
+		655AA43E1FF8AFE3611F51C8 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		6F120B9A8214D220D698E324 /* TmuxRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxRemoteApp.swift; sourceTree = "<group>"; };
+		75FA57C685C37D06BF73696A /* ResumeLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeLogic.swift; sourceTree = "<group>"; };
+		7723030D8EA822119343AE7D /* PatternConfigLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternConfigLoader.swift; sourceTree = "<group>"; };
+		77C51A836B93A7A41901B6B5 /* PairingInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingInfoTests.swift; sourceTree = "<group>"; };
+		7A5A286DCE5E93B7D7D16B62 /* BookmarkStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStoreTests.swift; sourceTree = "<group>"; };
+		81EDD85C68E9C5E1150DBC6D /* ResumeLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeLogicTests.swift; sourceTree = "<group>"; };
+		84A1D462A4AE2ABD27B9BBEB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		8C6F0617F1E6D5E21C5066D0 /* NabtoServiceDisconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NabtoServiceDisconnectTests.swift; sourceTree = "<group>"; };
+		9A99DD85A73865164CBAF048 /* StubNabtoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubNabtoService.swift; sourceTree = "<group>"; };
+		A0DA8513B3B8E5DBA905225C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A8113888EE66C9D841F6A804 /* ReconnectLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectLogic.swift; sourceTree = "<group>"; };
+		B1225827049E50C0AFD2A526 /* KeyboardAccessoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAccessoryView.swift; sourceTree = "<group>"; };
+		B49054912B1A4E27A490028E /* PairingInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingInfo.swift; sourceTree = "<group>"; };
+		BF4DA2C28EC0F0F3FA2DC5CC /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
+		C067CB983A54230E2C36972E /* BookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkStore.swift; sourceTree = "<group>"; };
+		CB5C78E6B47E14E8EA9A9C35 /* TmuxRemoteUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxRemoteUITests.swift; sourceTree = "<group>"; };
+		CFACB55BE57580446BA8E506 /* TerminalScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScreen.swift; sourceTree = "<group>"; };
+		D402CAB889BD19787BEEFE3B /* PatternConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternConfig.swift; sourceTree = "<group>"; };
+		DE25E2FD51F8F1AFEDE72CB3 /* patterns.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = patterns.json; sourceTree = "<group>"; };
+		DFBF41985E369D9B5A60BE6B /* TmuxRemoteTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TmuxRemoteTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E2C981FD1AA2A234DD78CA70 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E375CFDB843C22B57E586C37 /* Pods-TmuxRemote.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TmuxRemote.debug.xcconfig"; path = "Target Support Files/Pods-TmuxRemote/Pods-TmuxRemote.debug.xcconfig"; sourceTree = "<group>"; };
+		E5D0D3EA55F374AF37A94DB9 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
+		E719E515A45E922C16282C96 /* CBORHelpersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CBORHelpersTests.swift; sourceTree = "<group>"; };
+		E822E53A721BDD0A67FDDECC /* NabtoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NabtoService.swift; sourceTree = "<group>"; };
+		E92D43AAD175EC88DF13B0F0 /* TmuxRemote.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TmuxRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE618A969418659C69C9DAD0 /* TerminalViewWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalViewWrapper.swift; sourceTree = "<group>"; };
+		EEDC76BF121B74BA92E597FD /* PatternEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternEngineTests.swift; sourceTree = "<group>"; };
+		F2B6A97338CC8DD1F5085ADA /* DeviceListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceListView.swift; sourceTree = "<group>"; };
+		F5C915F534380568C8CE2759 /* PatternOverlayUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternOverlayUITests.swift; sourceTree = "<group>"; };
+		F6F4C8FCDF6A2304EB569B19 /* StubScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubScript.swift; sourceTree = "<group>"; };
+		FC9769BE058297BFA5A0BBC3 /* TmuxRemoteUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = TmuxRemoteUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F60718A9B0C1D2 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		B2C3D4E5F6071829A0B1C2D3 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		C3D4E5F60718293AB1C2D3E4 /* TestsDebug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = TestsDebug.xcconfig; sourceTree = "<group>"; };
+		D4E5F6071829304BC2D3E4F5 /* TestsRelease.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = TestsRelease.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8C966F78FFECF81114D7BD16 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0DCD1F1E793DC13C4002BE05 /* SwiftTerm in Frameworks */,
+				ED34AF5230800DC7C2AB7E6D /* Pods_TmuxRemote.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CE98C28E54981F380918B15D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				35E1F9B74D0CB50F08D9C51A /* Pods_TmuxRemoteTests.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0034DE287D162AA92D3907E5 /* TmuxRemote */ = {
+			isa = PBXGroup;
+			children = (
+				E2C981FD1AA2A234DD78CA70 /* Assets.xcassets */,
+				A0DA8513B3B8E5DBA905225C /* Info.plist */,
+				5361FEDD504BCB6D7B887556 /* App */,
+				5910C273A2F44CCF97772734 /* Models */,
+				8479F17D79716C5C7E19AD11 /* Patterns */,
+				44BF867074D2FAA54E534E6A /* Resources */,
+				F8B1D5C878F8B23F9AF663E4 /* Services */,
+				A5FC7C6EE23EC0E816D8A7CB /* Views */,
+			);
+			path = TmuxRemote;
+			sourceTree = "<group>";
+		};
+		341A717F739C5FA4FD458E4C = {
+			isa = PBXGroup;
+			children = (
+				0034DE287D162AA92D3907E5 /* TmuxRemote */,
+				445925835EC9110DCD4B86CE /* TmuxRemoteTests */,
+				A8A3C652682798FD9A6D28F3 /* TmuxRemoteUITests */,
+				E5F607182930415BD3E4F506 /* Config */,
+				AA95F4756FB61CFE255956DD /* Products */,
+				9EE669CE12A8A59A22C516E9 /* Pods */,
+				5DB23305BA25C16DBE1EC5E8 /* Frameworks */,
+			);
+			sourceTree = "<group>";
+		};
+		445925835EC9110DCD4B86CE /* TmuxRemoteTests */ = {
+			isa = PBXGroup;
+			children = (
+				7A5A286DCE5E93B7D7D16B62 /* BookmarkStoreTests.swift */,
+				E719E515A45E922C16282C96 /* CBORHelpersTests.swift */,
+				8C6F0617F1E6D5E21C5066D0 /* NabtoServiceDisconnectTests.swift */,
+				77C51A836B93A7A41901B6B5 /* PairingInfoTests.swift */,
+				109AD9F94883F8CFC2DDD6E4 /* PatternConfigTests.swift */,
+				EEDC76BF121B74BA92E597FD /* PatternEngineTests.swift */,
+				3D21BBFA3A7C0DEA81634E25 /* ReconnectLogicTests.swift */,
+				81EDD85C68E9C5E1150DBC6D /* ResumeLogicTests.swift */,
+			);
+			path = TmuxRemoteTests;
+			sourceTree = "<group>";
+		};
+		44BF867074D2FAA54E534E6A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				DE25E2FD51F8F1AFEDE72CB3 /* patterns.json */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		5361FEDD504BCB6D7B887556 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				655AA43E1FF8AFE3611F51C8 /* AppState.swift */,
+				84A1D462A4AE2ABD27B9BBEB /* RootView.swift */,
+				381DBEFC8DEF6F203547C22A /* Theme.swift */,
+				6F120B9A8214D220D698E324 /* TmuxRemoteApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		5910C273A2F44CCF97772734 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				01E3D6A87FB3AA5227279D65 /* DeviceBookmark.swift */,
+				B49054912B1A4E27A490028E /* PairingInfo.swift */,
+				37BADA15D7B27866E3793F60 /* SessionInfo.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		5DB23305BA25C16DBE1EC5E8 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				397838CBF536CF8AFF8D32DC /* Pods_TmuxRemote.framework */,
+				54A9CB4C3F2AD65F06B1E592 /* Pods_TmuxRemoteTests.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		E5F607182930415BD3E4F506 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F60718A9B0C1D2 /* Debug.xcconfig */,
+				B2C3D4E5F6071829A0B1C2D3 /* Release.xcconfig */,
+				C3D4E5F60718293AB1C2D3E4 /* TestsDebug.xcconfig */,
+				D4E5F6071829304BC2D3E4F5 /* TestsRelease.xcconfig */,
+			);
+			name = Config;
+			sourceTree = "<group>";
+		};
+		8479F17D79716C5C7E19AD11 /* Patterns */ = {
+			isa = PBXGroup;
+			children = (
+				D402CAB889BD19787BEEFE3B /* PatternConfig.swift */,
+				7723030D8EA822119343AE7D /* PatternConfigLoader.swift */,
+				5BAFA2860E521016A8F94EA1 /* PatternEngine.swift */,
+				0EA114FE123318A60EAE93D5 /* PatternMatch.swift */,
+			);
+			path = Patterns;
+			sourceTree = "<group>";
+		};
+		9EE669CE12A8A59A22C516E9 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				E375CFDB843C22B57E586C37 /* Pods-TmuxRemote.debug.xcconfig */,
+				57083CDD2BA43AC727EBFF18 /* Pods-TmuxRemote.release.xcconfig */,
+				4C588D365138D7556A0E7D39 /* Pods-TmuxRemoteTests.debug.xcconfig */,
+				1F5F42A77B0310E87DC7C5E4 /* Pods-TmuxRemoteTests.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		A5FC7C6EE23EC0E816D8A7CB /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				F2B6A97338CC8DD1F5085ADA /* DeviceListView.swift */,
+				B1225827049E50C0AFD2A526 /* KeyboardAccessoryView.swift */,
+				E5D0D3EA55F374AF37A94DB9 /* PairingView.swift */,
+				619749808317F421E7A97DD8 /* PatternOverlayView.swift */,
+				53BAAD994FAE5F4B32501AE8 /* SettingsView.swift */,
+				CFACB55BE57580446BA8E506 /* TerminalScreen.swift */,
+				EE618A969418659C69C9DAD0 /* TerminalViewWrapper.swift */,
+				3B81343772CFF9D3D3EC2E52 /* WelcomeView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A8A3C652682798FD9A6D28F3 /* TmuxRemoteUITests */ = {
+			isa = PBXGroup;
+			children = (
+				F5C915F534380568C8CE2759 /* PatternOverlayUITests.swift */,
+				CB5C78E6B47E14E8EA9A9C35 /* TmuxRemoteUITests.swift */,
+			);
+			path = TmuxRemoteUITests;
+			sourceTree = "<group>";
+		};
+		AA95F4756FB61CFE255956DD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E92D43AAD175EC88DF13B0F0 /* TmuxRemote.app */,
+				DFBF41985E369D9B5A60BE6B /* TmuxRemoteTests.xctest */,
+				FC9769BE058297BFA5A0BBC3 /* TmuxRemoteUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		F8B1D5C878F8B23F9AF663E4 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				BF4DA2C28EC0F0F3FA2DC5CC /* AppLog.swift */,
+				C067CB983A54230E2C36972E /* BookmarkStore.swift */,
+				412C928B74ABC55ADE23D2F6 /* CBORHelpers.swift */,
+				30AA5FEEBDD6667FB8FFEEC3 /* ConnectionManager.swift */,
+				5DAB0B9B789255406765828B /* KeychainService.swift */,
+				E822E53A721BDD0A67FDDECC /* NabtoService.swift */,
+				A8113888EE66C9D841F6A804 /* ReconnectLogic.swift */,
+				75FA57C685C37D06BF73696A /* ResumeLogic.swift */,
+				9A99DD85A73865164CBAF048 /* StubNabtoService.swift */,
+				F6F4C8FCDF6A2304EB569B19 /* StubScript.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		6C0B38993113C81DC7E8C287 /* TmuxRemoteUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 837BD7FD3C8357C5697D1900 /* Build configuration list for PBXNativeTarget "TmuxRemoteUITests" */;
+			buildPhases = (
+				BE9788542A0A651A14504A80 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				015D3320C133D2BF09A08466 /* PBXTargetDependency */,
+			);
+			name = TmuxRemoteUITests;
+			productName = TmuxRemoteUITests;
+			productReference = FC9769BE058297BFA5A0BBC3 /* TmuxRemoteUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		72A0BE59ADF59A4DDA0ED5B9 /* TmuxRemoteTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 710C30A52FB4BE07A89FA698 /* Build configuration list for PBXNativeTarget "TmuxRemoteTests" */;
+			buildPhases = (
+				00B283A06A4EF7B658B204F2 /* [CP] Check Pods Manifest.lock */,
+				DC2DE2A0AB1BA80CF1AE810C /* Sources */,
+				CE98C28E54981F380918B15D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6FA9BE2C999BCB86A4974D7E /* PBXTargetDependency */,
+			);
+			name = TmuxRemoteTests;
+			productName = TmuxRemoteTests;
+			productReference = DFBF41985E369D9B5A60BE6B /* TmuxRemoteTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		D233DBF04952F24A32702BDC /* TmuxRemote */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4B07D7E08A33071E9D300B26 /* Build configuration list for PBXNativeTarget "TmuxRemote" */;
+			buildPhases = (
+				E2183649FA3C742F31F78FD3 /* [CP] Check Pods Manifest.lock */,
+				F262CADE80F22D4B8E1E9495 /* Sources */,
+				9DCE138E8981D54628F456D3 /* Resources */,
+				8C966F78FFECF81114D7BD16 /* Frameworks */,
+				493C840E26F57990125D046A /* [CP] Embed Pods Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TmuxRemote;
+			packageProductDependencies = (
+				1234516976BDA5928B5A5CED /* SwiftTerm */,
+			);
+			productName = TmuxRemote;
+			productReference = E92D43AAD175EC88DF13B0F0 /* TmuxRemote.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AC1D504C9B56B105A6C925BF /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					6C0B38993113C81DC7E8C287 = {
+						TestTargetID = D233DBF04952F24A32702BDC;
+					};
+					D233DBF04952F24A32702BDC = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = FFD51B0CEBC8CE6BC80F6B57 /* Build configuration list for PBXProject "TmuxRemote" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 341A717F739C5FA4FD458E4C;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F5BB70247B78302CFDAD47BF /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = AA95F4756FB61CFE255956DD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D233DBF04952F24A32702BDC /* TmuxRemote */,
+				72A0BE59ADF59A4DDA0ED5B9 /* TmuxRemoteTests */,
+				6C0B38993113C81DC7E8C287 /* TmuxRemoteUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9DCE138E8981D54628F456D3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9F93B83CC9C8C9FDAB303364 /* Assets.xcassets in Resources */,
+				BB078FAFCACEDB9ED8F86F59 /* patterns.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		00B283A06A4EF7B658B204F2 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-TmuxRemoteTests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		493C840E26F57990125D046A /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-TmuxRemote/Pods-TmuxRemote-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-TmuxRemote/Pods-TmuxRemote-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-TmuxRemote/Pods-TmuxRemote-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		E2183649FA3C742F31F78FD3 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-TmuxRemote-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BE9788542A0A651A14504A80 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				54AB727155F1206640CA910C /* PatternOverlayUITests.swift in Sources */,
+				84D0C544DAFC277948D0D6BA /* TmuxRemoteUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DC2DE2A0AB1BA80CF1AE810C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33D4471BC92D6D3806B3B7D0 /* BookmarkStoreTests.swift in Sources */,
+				38C4783437EB58745AA6E556 /* CBORHelpersTests.swift in Sources */,
+				B15683B337060F71E495F7F8 /* NabtoServiceDisconnectTests.swift in Sources */,
+				AE68B85DB44B2E424F0DF186 /* PairingInfoTests.swift in Sources */,
+				564BB7061BB549DE89A312E1 /* PatternConfigTests.swift in Sources */,
+				7AFC6A85CC681595E66C8418 /* PatternEngineTests.swift in Sources */,
+				9020955759CFD511B19F3FD1 /* ReconnectLogicTests.swift in Sources */,
+				3498C4221EFA3D5859568E91 /* ResumeLogicTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F262CADE80F22D4B8E1E9495 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				524AAB841FE8ADF85BE7FDE5 /* AppLog.swift in Sources */,
+				EB31BBD8C6A39E6D135A8197 /* AppState.swift in Sources */,
+				97B1A47DB4E6DBDAACDEA5D8 /* BookmarkStore.swift in Sources */,
+				9AE8AE18B25780DD4D672D4B /* CBORHelpers.swift in Sources */,
+				52D301E9877B3B6023BA94D8 /* ConnectionManager.swift in Sources */,
+				EA74DCF62B1AB756BB63300B /* DeviceBookmark.swift in Sources */,
+				BFB0CF34C1182ECC6D17026C /* DeviceListView.swift in Sources */,
+				86286FFA2D6A57E5FD794F82 /* KeyboardAccessoryView.swift in Sources */,
+				BCCA23A2588D068CE64444D6 /* KeychainService.swift in Sources */,
+				1BC7B968C3BD109185FE5E41 /* NabtoService.swift in Sources */,
+				47259881A61C5B7B10A04976 /* PairingInfo.swift in Sources */,
+				690755C24CF470ECC561AAF9 /* PairingView.swift in Sources */,
+				D15324423045D39F3AA04272 /* PatternConfig.swift in Sources */,
+				EF94AA54273C3075A100EDD0 /* PatternConfigLoader.swift in Sources */,
+				C02C5C96E3CF4CEFB0BF7993 /* PatternEngine.swift in Sources */,
+				D72775ACB4D5F62DD6AADBC5 /* PatternMatch.swift in Sources */,
+				289B84B7EE443C046BB7ED8C /* PatternOverlayView.swift in Sources */,
+				96687D32282C663E88F895D3 /* ReconnectLogic.swift in Sources */,
+				54E5CD70F8C3F70026AFC396 /* ResumeLogic.swift in Sources */,
+				3FA998C454E56F939F596356 /* RootView.swift in Sources */,
+				2C86FAD5AE903AF9541DD534 /* SessionInfo.swift in Sources */,
+				B3C2EADD0DB976F9C8692F30 /* SettingsView.swift in Sources */,
+				DBE28DB5427DD2CDE71B0D50 /* StubNabtoService.swift in Sources */,
+				0F1C54D71EC9B783EF8C2EB2 /* StubScript.swift in Sources */,
+				BA11EC8104B389FE237229CB /* TerminalScreen.swift in Sources */,
+				8F6D698172B3879CFC60A5B1 /* TerminalViewWrapper.swift in Sources */,
+				7317F4EB427491D8DE2C3B92 /* Theme.swift in Sources */,
+				5E0E1C6947F31A68A049AB4B /* TmuxRemoteApp.swift in Sources */,
+				95D238D673B9AB979C863D51 /* WelcomeView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		015D3320C133D2BF09A08466 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D233DBF04952F24A32702BDC /* TmuxRemote */;
+			targetProxy = EBC9CD366D3562CBFA400BC1 /* PBXContainerItemProxy */;
+		};
+		6FA9BE2C999BCB86A4974D7E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D233DBF04952F24A32702BDC /* TmuxRemote */;
+			targetProxy = D3450A98165BDAFAB80ECF91 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		297E16464D663642FC98C399 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B2C3D4E5F6071829A0B1C2D3 /* Release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = TmuxRemote/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nabto.TmuxRemote;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		40552CBCC34D3F7C21E0E375 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1B2C3D4E5F60718A9B0C1D2 /* Debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = TmuxRemote/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nabto.TmuxRemote;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		81984AEA70D95AE0AEBA925B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C3D4E5F60718293AB1C2D3E4 /* TestsDebug.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nabto.TmuxRemoteTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TmuxRemote.app/TmuxRemote";
+			};
+			name = Debug;
+		};
+		9F17C00F56783B4AF68341B5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nabto.TmuxRemoteUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TmuxRemote;
+			};
+			name = Debug;
+		};
+		E652E87FEE9033895528BAE3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		F351B27D95F861A3F74537C1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		F945490077B3779D7463CFA7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D4E5F6071829304BC2D3E4F5 /* TestsRelease.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nabto.TmuxRemoteTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TmuxRemote.app/TmuxRemote";
+			};
+			name = Release;
+		};
+		FAC3B625D35A40A879F01B1F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nabto.TmuxRemoteUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TmuxRemote;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		4B07D7E08A33071E9D300B26 /* Build configuration list for PBXNativeTarget "TmuxRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				40552CBCC34D3F7C21E0E375 /* Debug */,
+				297E16464D663642FC98C399 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		710C30A52FB4BE07A89FA698 /* Build configuration list for PBXNativeTarget "TmuxRemoteTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				81984AEA70D95AE0AEBA925B /* Debug */,
+				F945490077B3779D7463CFA7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		837BD7FD3C8357C5697D1900 /* Build configuration list for PBXNativeTarget "TmuxRemoteUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9F17C00F56783B4AF68341B5 /* Debug */,
+				FAC3B625D35A40A879F01B1F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FFD51B0CEBC8CE6BC80F6B57 /* Build configuration list for PBXProject "TmuxRemote" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E652E87FEE9033895528BAE3 /* Debug */,
+				F351B27D95F861A3F74537C1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F5BB70247B78302CFDAD47BF /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1234516976BDA5928B5A5CED /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F5BB70247B78302CFDAD47BF /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AC1D504C9B56B105A6C925BF /* Project object */;
+}

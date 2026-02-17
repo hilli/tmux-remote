@@ -12,6 +12,7 @@ __pycache__/
 # iOS / Xcode
 clients/ios/Pods/
 clients/ios/*.xcworkspace/
+clients/ios/DeveloperSettings.xcconfig
 xcuserdata/
 *.xcuserstate
 *.ptyr

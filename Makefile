@@ -2,7 +2,7 @@
        configure configure-agent configure-client \
        init-test-server run-test-server setup-test-client \
        run-tests-offline run-tests-online run-test-client-suite \
-       test clean-test help
+       test clean-test ios-setup help
 
 PYTHON        ?= python3
 AGENT_BUILD   = agent/_build
@@ -162,6 +162,17 @@ run-test-client-suite: $(AGENT_BIN) $(CLIENT_BIN)
 		echo "To run online tests, start the server and run: make setup-test-client"; \
 	fi
 
+# ── iOS Setup ─────────────────────────────────────────────────────
+
+ios-setup:
+	@if [ -z "$(TEAM)" ]; then \
+		echo "Usage: make ios-setup TEAM=YOUR_TEAM_ID"; \
+		echo "Find your team ID: Xcode > Settings > Accounts > select team"; \
+		exit 1; \
+	fi
+	@echo "DEVELOPMENT_TEAM = $(TEAM)" > clients/ios/DeveloperSettings.xcconfig
+	@echo "Set development team to $(TEAM) in clients/ios/DeveloperSettings.xcconfig"
+
 # ── Help ───────────────────────────────────────────────────────────
 
 test:
@@ -188,6 +199,9 @@ help:
 	@echo "  make agent                    Build agent only"
 	@echo "  make client                   Build CLI client only"
 	@echo "  make configure                Run cmake configure for both"
+	@echo ""
+	@echo "iOS:"
+	@echo "  make ios-setup TEAM=ID        Set Xcode development team (one-time)"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean                    Remove all build artifacts"
