@@ -1,0 +1,4 @@
+interface:
+  display_name: "PTYR Debug"
+  short_description: "Debug PTY recordings into passing fixes"
+  default_prompt: "Use $ptyr-debug to analyze recording 17, write a reproducing test, and fix the bug."
