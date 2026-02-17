@@ -40,12 +40,7 @@ void tmuxremote_print_banner(struct tmuxremote* app, const char* fingerprint)
     printf("# Device ID:      %s" NEWLINE, deviceId);
 
     if (fingerprint != NULL) {
-        /* Show truncated fingerprint */
-        char fpShort[20];
-        memset(fpShort, 0, sizeof(fpShort));
-        strncpy(fpShort, fingerprint, 12);
-        strcat(fpShort, "...");
-        printf("# Fingerprint:    %s" NEWLINE, fpShort);
+        printf("# Fingerprint:    %s" NEWLINE, fingerprint);
     }
 
     printf("# Version:        %s" NEWLINE, TMUXREMOTE_VERSION);
@@ -145,7 +140,7 @@ void tmuxremote_print_banner(struct tmuxremote* app, const char* fingerprint)
     if (!hasPairedUsers) {
         printf("######## Waiting for pairing... ########" NEWLINE);
     } else {
-        printf("######## Attached to basestation ########" NEWLINE);
+        printf("######## Waiting for basestation... ########" NEWLINE);
     }
     printf(NEWLINE);
 
