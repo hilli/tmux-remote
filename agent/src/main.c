@@ -13,6 +13,8 @@
 
 #include <modules/fs/posix/nm_fs_posix.h>
 
+#include <dirent.h>
+#include <errno.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -20,9 +22,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 #include <time.h>
-#include <dirent.h>
+#include <unistd.h>
 
 #define NEWLINE "\n"
 
@@ -39,7 +40,8 @@ enum {
     OPTION_PRODUCT_ID,
     OPTION_DEVICE_ID,
     OPTION_RECORD_PTY,
-    OPTION_MOVE_DEVICE_KEY
+    OPTION_MOVE_DEVICE_KEY,
+    OPTION_BACKGROUND
 };
 
 static volatile sig_atomic_t signalCount = 0;
@@ -72,6 +74,7 @@ struct args {
     char* deviceId;
     char* recordPtyFile;
     char* moveDeviceKey;
+    bool background;
 };
 
 static void args_init(struct args* args);
@@ -393,6 +396,56 @@ bool run_agent(const struct args* args)
     tmuxremote_print_banner(&app, deviceFingerprint);
     nabto_device_string_free(deviceFingerprint);
 
+    if (args->background) {
+        char pidPath[512];
+        char logPath[512];
+        snprintf(pidPath, sizeof(pidPath), "%s/tmux-remote-agent.pid", app.homeDir);
+        snprintf(logPath, sizeof(logPath), "%s/agent.log", app.homeDir);
+
+        fflush(stdout);
+        fflush(stderr);
+
+        pid_t pid = fork();
+        if (pid < 0) {
+            printf("Failed to fork: %s" NEWLINE, strerror(errno));
+            device_config_deinit(&deviceConfig);
+            tmuxremote_deinit(&app);
+            nabto_device_free(globalDevice);
+            globalDevice = NULL;
+            return false;
+        } else if (pid > 0) {
+            /* Parent: print info and exit */
+            printf("Backgrounding (PID %d)" NEWLINE, pid);
+            printf("  PID file: %s" NEWLINE, pidPath);
+            printf("  Log file: %s" NEWLINE, logPath);
+            _exit(0);
+        }
+
+        /* Child continues as daemon */
+        setsid();
+
+        /* Write PID file */
+        FILE* pf = fopen(pidPath, "w");
+        if (pf != NULL) {
+            fprintf(pf, "%d\n", getpid());
+            fclose(pf);
+        }
+
+        /* Redirect stdout/stderr to log file, close stdin */
+        FILE* lf = fopen(logPath, "a");
+        if (lf != NULL) {
+            dup2(fileno(lf), STDOUT_FILENO);
+            dup2(fileno(lf), STDERR_FILENO);
+            fclose(lf);
+        }
+        close(STDIN_FILENO);
+
+        /* Re-apply unbuffered mode after fd swap and write startup marker */
+        setvbuf(stdout, NULL, _IONBF, 0);
+        setvbuf(stderr, NULL, _IONBF, 0);
+        printf("Agent started (PID %d)" NEWLINE, getpid());
+    }
+
     /* Device event listener and signal handling.
        The SIGINT handler only sets flags; all SDK calls happen here. */
     signal(SIGINT, &signal_handler);
@@ -455,6 +508,12 @@ bool run_agent(const struct args* args)
     tmuxremote_stream_listener_deinit(&app.streamListener);
     tmuxremote_control_stream_listener_deinit(&app.controlStreamListener);
 
+    if (args->background) {
+        char pidPath[512];
+        snprintf(pidPath, sizeof(pidPath), "%s/tmux-remote-agent.pid", app.homeDir);
+        unlink(pidPath);
+    }
+
     device_config_deinit(&deviceConfig);
     tmuxremote_iam_deinit(&app.iam);
     tmuxremote_deinit(&app);
@@ -496,6 +555,7 @@ bool parse_args(int argc, char** argv, struct args* args)
     const char x11s[] = "d"; const char* x11l[] = { "device-id", 0 };
     const char x12s[] = "";  const char* x12l[] = { "record-pty", 0 };
     const char x13s[] = "";  const char* x13l[] = { "move-device-key", 0 };
+    const char x14s[] = "b"; const char* x14l[] = { "background", 0 };
 
     const struct { int k; int f; const char* s; const char* const* l; } opts[] = {
         { OPTION_HELP,        GOPT_NOARG, x1s,  x1l },
@@ -511,6 +571,7 @@ bool parse_args(int argc, char** argv, struct args* args)
         { OPTION_DEVICE_ID,   GOPT_ARG,   x11s, x11l },
         { OPTION_RECORD_PTY,  GOPT_ARG,   x12s, x12l },
         { OPTION_MOVE_DEVICE_KEY, GOPT_ARG, x13s, x13l },
+        { OPTION_BACKGROUND,  GOPT_NOARG, x14s, x14l },
         {0, 0, 0, 0}
     };
 
@@ -530,6 +591,9 @@ bool parse_args(int argc, char** argv, struct args* args)
     }
     if (gopt(options, OPTION_DEMO_INIT)) {
         args->demoInit = true;
+    }
+    if (gopt(options, OPTION_BACKGROUND)) {
+        args->background = true;
     }
 
     const char* tmp = NULL;
@@ -919,4 +983,5 @@ void print_help(void)
     printf("      --log-level <level>   Log level (error|info|trace|debug)" NEWLINE);
     printf("      --random-ports        Use random ports" NEWLINE);
     printf("      --record-pty <path>   Record raw PTY data to file" NEWLINE);
+    printf("  -b, --background          Run in background (daemon mode)" NEWLINE);
 }
