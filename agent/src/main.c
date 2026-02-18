@@ -1,4 +1,5 @@
 #include "tmuxremote.h"
+#include "tmuxremote_info.h"
 #include "tmuxremote_init.h"
 #include "tmuxremote_banner.h"
 #include "tmuxremote_device.h"
@@ -27,6 +28,8 @@
 
 #define NEWLINE "\n"
 
+bool tmuxremote_silent = false;
+
 enum {
     OPTION_HELP = 1,
     OPTION_VERSION,
@@ -41,7 +44,8 @@ enum {
     OPTION_DEVICE_ID,
     OPTION_RECORD_PTY,
     OPTION_MOVE_DEVICE_KEY,
-    OPTION_BACKGROUND
+    OPTION_BACKGROUND,
+    OPTION_SILENT
 };
 
 static volatile sig_atomic_t signalCount = 0;
@@ -75,6 +79,7 @@ struct args {
     char* recordPtyFile;
     char* moveDeviceKey;
     bool background;
+    bool silent;
 };
 
 static void args_init(struct args* args);
@@ -234,6 +239,8 @@ int main(int argc, char** argv)
 
 bool run_agent(const struct args* args)
 {
+    tmuxremote_silent = args->silent;
+
     struct tmuxremote app;
     tmuxremote_init(&app);
 
@@ -415,9 +422,9 @@ bool run_agent(const struct args* args)
             return false;
         } else if (pid > 0) {
             /* Parent: print info and exit */
-            printf("Backgrounding (PID %d)" NEWLINE, pid);
-            printf("  PID file: %s" NEWLINE, pidPath);
-            printf("  Log file: %s" NEWLINE, logPath);
+            info_printf("Backgrounding (PID %d)" NEWLINE, pid);
+            info_printf("  PID file: %s" NEWLINE, pidPath);
+            info_printf("  Log file: %s" NEWLINE, logPath);
             _exit(0);
         }
 
@@ -443,7 +450,7 @@ bool run_agent(const struct args* args)
         /* Re-apply unbuffered mode after fd swap and write startup marker */
         setvbuf(stdout, NULL, _IONBF, 0);
         setvbuf(stderr, NULL, _IONBF, 0);
-        printf("Agent started (PID %d)" NEWLINE, getpid());
+        info_printf("Agent started (PID %d)" NEWLINE, getpid());
     }
 
     /* Device event listener and signal handling.
@@ -463,7 +470,7 @@ bool run_agent(const struct args* args)
     }
 
     if (signalCount > 0) {
-        printf("\rCaught signal %d" NEWLINE, SIGINT);
+        info_printf("\rCaught signal %d" NEWLINE, SIGINT);
     }
 
     /* Shutdown */
@@ -556,6 +563,7 @@ bool parse_args(int argc, char** argv, struct args* args)
     const char x12s[] = "";  const char* x12l[] = { "record-pty", 0 };
     const char x13s[] = "";  const char* x13l[] = { "move-device-key", 0 };
     const char x14s[] = "b"; const char* x14l[] = { "background", 0 };
+    const char x15s[] = "s"; const char* x15l[] = { "silent", 0 };
 
     const struct { int k; int f; const char* s; const char* const* l; } opts[] = {
         { OPTION_HELP,        GOPT_NOARG, x1s,  x1l },
@@ -572,6 +580,7 @@ bool parse_args(int argc, char** argv, struct args* args)
         { OPTION_RECORD_PTY,  GOPT_ARG,   x12s, x12l },
         { OPTION_MOVE_DEVICE_KEY, GOPT_ARG, x13s, x13l },
         { OPTION_BACKGROUND,  GOPT_NOARG, x14s, x14l },
+        { OPTION_SILENT,      GOPT_NOARG, x15s, x15l },
         {0, 0, 0, 0}
     };
 
@@ -594,6 +603,9 @@ bool parse_args(int argc, char** argv, struct args* args)
     }
     if (gopt(options, OPTION_BACKGROUND)) {
         args->background = true;
+    }
+    if (gopt(options, OPTION_SILENT)) {
+        args->silent = true;
     }
 
     const char* tmp = NULL;
@@ -661,9 +673,9 @@ static void device_event_callback(NabtoDeviceFuture* future, NabtoDeviceError ec
         atomic_store(&state->active, false);
         return;
     } else if (state->event == NABTO_DEVICE_EVENT_ATTACHED) {
-        printf("Attached to the basestation" NEWLINE);
+        info_printf("Attached to the basestation" NEWLINE);
     } else if (state->event == NABTO_DEVICE_EVENT_DETACHED) {
-        printf("Detached from the basestation" NEWLINE);
+        info_printf("Detached from the basestation" NEWLINE);
     } else if (state->event == NABTO_DEVICE_EVENT_UNKNOWN_FINGERPRINT) {
         printf("The device fingerprint is not known by the basestation" NEWLINE);
     } else if (state->event == NABTO_DEVICE_EVENT_WRONG_PRODUCT_ID) {
@@ -872,8 +884,8 @@ bool load_pattern_configs(struct tmuxremote* app)
 
     if (merged->agent_count > 0) {
         app->patternConfig = merged;
-        printf("Pattern config loaded (%d agents), activates per-session" NEWLINE,
-               merged->agent_count);
+        info_printf("Pattern config loaded (%d agents), activates per-session" NEWLINE,
+                    merged->agent_count);
     } else {
         tmuxremote_pattern_config_free(merged);
         printf("Error: no valid agents loaded from pattern config files" NEWLINE);
@@ -903,8 +915,8 @@ static bool load_default_pattern_config(struct tmuxremote* app)
     }
 
     app->patternConfig = cfg;
-    printf("Pattern config loaded from embedded defaults (%d agents)" NEWLINE,
-           cfg->agent_count);
+    info_printf("Pattern config loaded from embedded defaults (%d agents)" NEWLINE,
+                cfg->agent_count);
     return true;
 }
 
@@ -984,4 +996,5 @@ void print_help(void)
     printf("      --random-ports        Use random ports" NEWLINE);
     printf("      --record-pty <path>   Record raw PTY data to file" NEWLINE);
     printf("  -b, --background          Run in background (daemon mode)" NEWLINE);
+    printf("  -s, --silent              Suppress informational output (errors only)" NEWLINE);
 }

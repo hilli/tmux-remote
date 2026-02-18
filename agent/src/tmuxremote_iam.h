@@ -9,6 +9,9 @@
 
 struct nm_fs;
 
+/* Max paired users we track for change detection */
+#define TMUXREMOTE_IAM_MAX_USERS 32
+
 struct tmuxremote_iam {
     struct nn_log* logger;
     struct nm_iam iam;
@@ -21,6 +24,10 @@ struct tmuxremote_iam {
     bool saveThreadStarted;
     bool saveStop;
     struct nm_iam_state* pendingState;
+
+    /* Track paired usernames for detecting new pairings */
+    char* pairedUsers[TMUXREMOTE_IAM_MAX_USERS];
+    int pairedUserCount;
 };
 
 void tmuxremote_iam_init(struct tmuxremote_iam* niam, NabtoDevice* device,

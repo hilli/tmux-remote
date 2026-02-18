@@ -2,6 +2,7 @@
 
 #include "tmuxremote.h"
 #include "tmuxremote_control_stream.h"
+#include "tmuxremote_info.h"
 #include "tmuxremote_session.h"
 #include "tmuxremote_tmux.h"
 
@@ -410,7 +411,7 @@ static void* stream_setup_thread(void* arg)
             memcpy(header + 4, &version, 4);
             fwrite(header, 1, 16, as->ptyRecordFile);
             fflush(as->ptyRecordFile);
-            printf("Recording PTY data to %s" NEWLINE, as->app->recordPtyFile);
+            info_printf("Recording PTY data to %s" NEWLINE, as->app->recordPtyFile);
         } else {
             printf("Warning: failed to open PTY recording file %s" NEWLINE,
                    as->app->recordPtyFile);

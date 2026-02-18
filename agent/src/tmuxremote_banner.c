@@ -1,5 +1,6 @@
 #include "tmuxremote_banner.h"
 #include "tmuxremote.h"
+#include "tmuxremote_info.h"
 #include "tmuxremote_tmux.h"
 
 #include <modules/iam/nm_iam.h>
@@ -13,6 +14,10 @@
 
 void tmuxremote_print_banner(struct tmuxremote* app, const char* fingerprint)
 {
+    if (tmuxremote_silent) {
+        return;
+    }
+
     const char* productId = nabto_device_get_product_id(app->device);
     const char* deviceId = nabto_device_get_device_id(app->device);
 

@@ -8,6 +8,8 @@
 
 #include <cjson/cJSON.h>
 
+#include "tmuxremote_info.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +23,8 @@ static bool load_iam_config(struct tmuxremote_iam* niam);
 static void save_iam_state(struct nm_fs* file, const char* filename,
                            struct nm_iam_state* state, struct nn_log* logger);
 static void* save_iam_state_worker(void* data);
+static void check_and_announce_new_pairings(struct tmuxremote_iam* niam,
+                                            struct nm_iam_state* state);
 
 void tmuxremote_iam_init(struct tmuxremote_iam* niam, NabtoDevice* device,
                          struct nm_fs* file, const char* iamStateFile,
@@ -36,6 +40,8 @@ void tmuxremote_iam_init(struct tmuxremote_iam* niam, NabtoDevice* device,
     niam->saveThreadStarted = false;
     niam->saveStop = false;
     niam->pendingState = NULL;
+    niam->pairedUserCount = 0;
+    memset(niam->pairedUsers, 0, sizeof(niam->pairedUsers));
 
     if (pthread_create(&niam->saveThread, NULL, save_iam_state_worker, niam) == 0) {
         niam->saveThreadStarted = true;
@@ -69,6 +75,10 @@ void tmuxremote_iam_deinit(struct tmuxremote_iam* niam)
     pthread_cond_destroy(&niam->saveCond);
     pthread_mutex_destroy(&niam->saveMutex);
     free(niam->iamStateFile);
+    for (int i = 0; i < niam->pairedUserCount; i++) {
+        free(niam->pairedUsers[i]);
+    }
+    niam->pairedUserCount = 0;
 }
 
 static void tmuxremote_iam_state_changed(struct nm_iam* iam, void* userData)
@@ -130,10 +140,69 @@ static void* save_iam_state_worker(void* data)
 
         if (state != NULL) {
             save_iam_state(niam->file, niam->iamStateFile, state, niam->logger);
+            check_and_announce_new_pairings(niam, state);
             nm_iam_state_free(state);
         }
     }
     return NULL;
+}
+
+static void check_and_announce_new_pairings(struct tmuxremote_iam* niam,
+                                            struct nm_iam_state* state)
+{
+    /* Build list of currently paired usernames from state */
+    struct nm_iam_user* user = NULL;
+    char* newlyPaired[TMUXREMOTE_IAM_MAX_USERS];
+    int newlyPairedCount = 0;
+
+    NN_LLIST_FOREACH(user, &state->users) {
+        if (nn_llist_empty(&user->fingerprints) || user->username == NULL) {
+            continue;
+        }
+        /* Check if this user was already known as paired */
+        bool known = false;
+        for (int i = 0; i < niam->pairedUserCount; i++) {
+            if (strcmp(niam->pairedUsers[i], user->username) == 0) {
+                known = true;
+                break;
+            }
+        }
+        if (!known && newlyPairedCount < TMUXREMOTE_IAM_MAX_USERS) {
+            newlyPaired[newlyPairedCount++] = user->username;
+        }
+    }
+
+    /* Announce each newly paired user */
+    for (int i = 0; i < newlyPairedCount; i++) {
+        info_printf(NEWLINE);
+        info_printf("########################################" NEWLINE);
+        info_printf("### User \"%s\" completed pairing" NEWLINE, newlyPaired[i]);
+        info_printf("########################################" NEWLINE);
+
+        /* Print current paired user list */
+        info_printf("#" NEWLINE);
+        info_printf("# Paired users:" NEWLINE);
+        NN_LLIST_FOREACH(user, &state->users) {
+            if (!nn_llist_empty(&user->fingerprints) && user->username != NULL) {
+                if (user->displayName != NULL) {
+                    info_printf("#   %s (%s)" NEWLINE, user->username, user->displayName);
+                } else {
+                    info_printf("#   %s" NEWLINE, user->username);
+                }
+            }
+        }
+        info_printf("#" NEWLINE);
+        info_printf("########################################" NEWLINE);
+        info_printf(NEWLINE);
+        info_fflush(stdout);
+    }
+
+    /* Update tracked paired user list */
+    for (int i = 0; i < newlyPairedCount; i++) {
+        if (niam->pairedUserCount < TMUXREMOTE_IAM_MAX_USERS) {
+            niam->pairedUsers[niam->pairedUserCount++] = strdup(newlyPaired[i]);
+        }
+    }
 }
 
 void tmuxremote_iam_create_default_state(NabtoDevice* device, struct nm_fs* file,
@@ -219,6 +288,18 @@ bool tmuxremote_iam_load_state(struct tmuxremote_iam* niam)
     if (status && !nm_iam_load_state(&niam->iam, is)) {
         NN_LOG_ERROR(niam->logger, LOGM, "Failed to load state into IAM module");
         status = false;
+    }
+
+    /* Seed paired user tracking from initial state */
+    if (status) {
+        struct nm_iam_user* user = NULL;
+        NN_LLIST_FOREACH(user, &is->users) {
+            if (user->username != NULL && !nn_llist_empty(&user->fingerprints)) {
+                if (niam->pairedUserCount < TMUXREMOTE_IAM_MAX_USERS) {
+                    niam->pairedUsers[niam->pairedUserCount++] = strdup(user->username);
+                }
+            }
+        }
     }
 
     if (!status) {

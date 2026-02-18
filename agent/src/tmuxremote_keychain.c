@@ -1,4 +1,5 @@
 #include "tmuxremote_keychain.h"
+#include "tmuxremote_info.h"
 
 #include <apps/common/private_key.h>
 #include <apps/common/string_file.h>
@@ -115,7 +116,7 @@ bool tmuxremote_ensure_namespaced_key_file(struct nm_fs* fsImpl,
         return false;
     }
 
-    printf("Migrated legacy key file to %s" NEWLINE, namespacedKeyFile);
+    info_printf("Migrated legacy key file to %s" NEWLINE, namespacedKeyFile);
     return true;
 }
 
