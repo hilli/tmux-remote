@@ -1,6 +1,7 @@
 #include "tmuxremote_attach.h"
 #include "tmuxremote_client.h"
 #include "tmuxremote_client_config.h"
+#include "tmuxremote_client_log.h"
 #include "tmuxremote_client_util.h"
 #include "tmuxremote_client_coap.h"
 
@@ -97,10 +98,12 @@ static int run_stream_relay(NabtoClientConnection* conn, NabtoClient* client,
     nabto_client_future_free(future);
 
     if (ec != NABTO_CLIENT_EC_OK) {
+        tmuxremote_log("Failed to open stream: %s", nabto_client_error_get_message(ec));
         printf("Failed to open stream: %s\n", nabto_client_error_get_message(ec));
         nabto_client_stream_free(stream);
         return 1;
     }
+    tmuxremote_log("Stream opened on port 1");
 
     /* Set terminal to raw mode */
     struct termios savedTermios;
@@ -134,6 +137,7 @@ static int run_stream_relay(NabtoClientConnection* conn, NabtoClient* client,
     }
 
     /* Main loop: read stdin, send to stream, handle SIGWINCH */
+    tmuxremote_log("Entering terminal relay");
     uint8_t inputBuf[READ_BUFFER_SIZE];
     ret = 0;
 
@@ -175,6 +179,7 @@ static int run_stream_relay(NabtoClientConnection* conn, NabtoClient* client,
     }
 
     /* Cleanup */
+    tmuxremote_log("Relay ended");
     atomic_store(&done, true);
 
     /* Close stream */
@@ -203,15 +208,25 @@ static bool connect_to_device(const char* deviceName,
     struct tmuxremote_device_bookmark* dev =
         tmuxremote_config_find_device(config, deviceName);
     if (dev == NULL) {
-        printf("Device '%s' not found. Run 'tmux-remote devices' to see saved devices.\n",
+        printf("Agent '%s' not found. Run 'tmux-remote agents' to see saved agents.\n",
                deviceName);
         return false;
     }
+    tmuxremote_log("Device '%s' found (product=%s, device=%s)",
+                   deviceName, dev->productId, dev->deviceId);
 
     NabtoClient* client = nabto_client_new();
     if (client == NULL) {
         printf("Failed to create Nabto client\n");
         return false;
+    }
+    tmuxremote_log("Nabto client initialized");
+
+    /* Configure SDK logging if requested */
+    if (g_nabto_log_level != NULL && g_log_file != NULL) {
+        nabto_client_set_log_level(client, g_nabto_log_level);
+        nabto_client_set_log_callback(client, tmuxremote_nabto_log_callback, NULL);
+        tmuxremote_log("Nabto SDK logging enabled (level=%s)", g_nabto_log_level);
     }
 
     char* privateKey = NULL;
@@ -219,6 +234,7 @@ static bool connect_to_device(const char* deviceName,
         nabto_client_free(client);
         return false;
     }
+    tmuxremote_log("Client key loaded");
 
     NabtoClientConnection* conn = nabto_client_connection_new(client);
     if (conn == NULL) {
@@ -245,6 +261,7 @@ static bool connect_to_device(const char* deviceName,
         nabto_client_free(client);
         return false;
     }
+    tmuxremote_log("Connection options set, connecting...");
 
     NabtoClientFuture* future = nabto_client_future_new(client);
     nabto_client_connection_connect(conn, future);
@@ -252,12 +269,14 @@ static bool connect_to_device(const char* deviceName,
     nabto_client_future_free(future);
 
     if (ec != NABTO_CLIENT_EC_OK) {
+        tmuxremote_log("Connection failed: %s", nabto_client_error_get_message(ec));
         printf("Failed to connect to '%s': %s\n", deviceName,
                nabto_client_error_get_message(ec));
         nabto_client_connection_free(conn);
         nabto_client_free(client);
         return false;
     }
+    tmuxremote_log("Connected to device");
 
     *out_client = client;
     *out_conn = conn;
@@ -280,7 +299,7 @@ static void close_connection(NabtoClient* client, NabtoClientConnection* conn,
 int tmuxremote_cmd_attach(int argc, char** argv)
 {
     if (argc < 2) {
-        printf("Usage: tmux-remote attach <device> [session]\n");
+        printf("Usage: tmux-remote attach <agent> [session]\n");
         printf("\n");
         printf("Attach to an existing tmux session. Fails if the session does not exist.\n");
         printf("Default session: \"main\"\n");
@@ -311,10 +330,12 @@ int tmuxremote_cmd_attach(int argc, char** argv)
 
     /* Attach to existing session (create=false) */
     if (!tmuxremote_coap_attach(conn, client, sessionName, cols, rows, false)) {
+        tmuxremote_log("Failed to attach to session '%s'", sessionName);
         printf("Session '%s' not found on '%s'.\n", sessionName, deviceName);
         close_connection(client, conn, &config);
         return 1;
     }
+    tmuxremote_log("Attached to session '%s'", sessionName);
 
     /* Run the stream relay */
     int ret = run_stream_relay(conn, client, &config);
@@ -326,7 +347,7 @@ int tmuxremote_cmd_attach(int argc, char** argv)
 int tmuxremote_cmd_new_session(int argc, char** argv)
 {
     if (argc < 2) {
-        printf("Usage: tmux-remote create <device> [session] [--command <cmd>]\n");
+        printf("Usage: tmux-remote create <agent> [session] [--command <cmd>]\n");
         printf("\n");
         printf("Create a new tmux session and attach to it.\n");
         printf("Default session name: auto-generated (ns-<pid>).\n");
@@ -374,19 +395,27 @@ int tmuxremote_cmd_new_session(int argc, char** argv)
     tmuxremote_terminal_get_size(&cols, &rows);
 
     /* Create the session */
+    tmuxremote_log("Creating session '%s'%s%s%s", sessionName,
+                   command ? " with command '" : "",
+                   command ? command : "",
+                   command ? "'" : "");
     if (!tmuxremote_coap_create_session(conn, client, sessionName,
                                         cols, rows, command)) {
+        tmuxremote_log("Failed to create session '%s'", sessionName);
         printf("Failed to create session '%s' on '%s'.\n", sessionName, deviceName);
         close_connection(client, conn, &config);
         return 1;
     }
+    tmuxremote_log("Session '%s' created", sessionName);
 
     /* Attach to the newly created session (create=false) */
     if (!tmuxremote_coap_attach(conn, client, sessionName, cols, rows, false)) {
+        tmuxremote_log("Failed to attach to session '%s'", sessionName);
         printf("Failed to attach to session '%s'.\n", sessionName);
         close_connection(client, conn, &config);
         return 1;
     }
+    tmuxremote_log("Attached to session '%s'", sessionName);
 
     /* Run the stream relay */
     int ret = run_stream_relay(conn, client, &config);

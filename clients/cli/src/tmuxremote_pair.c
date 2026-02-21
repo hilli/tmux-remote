@@ -48,7 +48,7 @@ int tmuxremote_cmd_pair(int argc, char** argv)
     struct tmuxremote_device_bookmark* existing =
         tmuxremote_config_find_device(&config, info.deviceId);
     if (existing != NULL) {
-        printf("Already paired with device '%s' (saved as '%s').\n",
+        printf("Already paired with agent '%s' (saved as '%s').\n",
                info.deviceId, existing->name);
         tmuxremote_config_deinit(&config);
         return 1;
@@ -171,7 +171,7 @@ int tmuxremote_cmd_pair(int argc, char** argv)
     }
 
     if (!tmuxremote_config_add_device(&config, &bookmark)) {
-        printf("Failed to save device bookmark\n");
+        printf("Failed to save agent bookmark\n");
     }
 
     /* Close connection */
@@ -184,7 +184,7 @@ int tmuxremote_cmd_pair(int argc, char** argv)
     nabto_client_free(client);
     tmuxremote_config_deinit(&config);
 
-    printf("Paired with device '%s'. Saved as '%s'.\n",
+    printf("Paired with agent '%s'. Saved as '%s'.\n",
            info.deviceId, bookmark.name);
     if (friendlyName == NULL) {
         printf("Use --name to set a friendly name, or rename later with: "

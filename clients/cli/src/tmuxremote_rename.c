@@ -24,7 +24,7 @@ int tmuxremote_cmd_rename(int argc, char** argv)
     struct tmuxremote_device_bookmark* dev =
         tmuxremote_config_find_device(&config, currentName);
     if (dev == NULL) {
-        printf("Device '%s' not found.\n", currentName);
+        printf("Agent '%s' not found.\n", currentName);
         tmuxremote_config_deinit(&config);
         return 1;
     }
@@ -33,7 +33,7 @@ int tmuxremote_cmd_rename(int argc, char** argv)
     dev->name[sizeof(dev->name) - 1] = '\0';
 
     if (!tmuxremote_config_save_devices(&config)) {
-        printf("Failed to save devices.\n");
+        printf("Failed to save agents.\n");
         tmuxremote_config_deinit(&config);
         return 1;
     }

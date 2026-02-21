@@ -153,7 +153,7 @@ bool tmuxremote_config_add_device(struct tmuxremote_client_config* config,
                                   const struct tmuxremote_device_bookmark* device)
 {
     if (config->deviceCount >= TMUXREMOTE_MAX_DEVICES) {
-        printf("Too many saved devices\n");
+        printf("Too many saved agents\n");
         return false;
     }
 

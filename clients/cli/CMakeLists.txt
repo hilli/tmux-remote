@@ -43,6 +43,7 @@ set(src
   src/tmuxremote_rename.c
   src/tmuxremote_client_config.c
   src/tmuxremote_client_coap.c
+  src/tmuxremote_client_log.c
   src/tmuxremote_client_util.c
   src/3rdparty/cjson/cJSON.c
 )

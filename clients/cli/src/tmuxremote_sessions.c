@@ -13,7 +13,7 @@
 int tmuxremote_cmd_sessions(int argc, char** argv)
 {
     if (argc < 2) {
-        printf("Usage: tmux-remote sessions <device-name>\n");
+        printf("Usage: tmux-remote sessions <agent-name>\n");
         return 1;
     }
 
@@ -29,7 +29,7 @@ int tmuxremote_cmd_sessions(int argc, char** argv)
     struct tmuxremote_device_bookmark* dev =
         tmuxremote_config_find_device(&config, deviceName);
     if (dev == NULL) {
-        printf("Device '%s' not found.\n", deviceName);
+        printf("Agent '%s' not found.\n", deviceName);
         tmuxremote_config_deinit(&config);
         return 1;
     }
