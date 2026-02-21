@@ -257,16 +257,69 @@ bool run_agent(const struct args* args)
     struct tmuxremote app;
     tmuxremote_init(&app);
 
-    globalDevice = nabto_device_new();
-    if (globalDevice == NULL) {
-        printf("Failed to create Nabto device" NEWLINE);
-        return false;
-    }
-    app.device = globalDevice;
     app.homeDir = strdup(args->homeDir);
     if (args->recordPtyFile) {
         app.recordPtyFile = strdup(args->recordPtyFile);
     }
+
+    /* Daemonize early, before any Nabto SDK calls. After fork(), the child
+     * process does not inherit parent event loop threads, kqueue/epoll state,
+     * or UDP socket ownership. Forking before nabto_device_new() avoids all
+     * of these problems. */
+    if (args->background) {
+        char pidPath[512];
+        char logPath[512];
+        snprintf(pidPath, sizeof(pidPath), "%s/tmux-remote-agent.pid", app.homeDir);
+        snprintf(logPath, sizeof(logPath), "%s/agent.log", app.homeDir);
+
+        fflush(stdout);
+        fflush(stderr);
+
+        pid_t pid = fork();
+        if (pid < 0) {
+            printf("Failed to fork: %s" NEWLINE, strerror(errno));
+            tmuxremote_deinit(&app);
+            return false;
+        } else if (pid > 0) {
+            /* Parent: print info and exit */
+            info_printf("Backgrounding (PID %d)" NEWLINE, pid);
+            info_printf("  PID file: %s" NEWLINE, pidPath);
+            info_printf("  Log file: %s" NEWLINE, logPath);
+            _exit(0);
+        }
+
+        /* Child continues as daemon */
+        setsid();
+
+        /* Write PID file */
+        FILE* pf = fopen(pidPath, "w");
+        if (pf != NULL) {
+            fprintf(pf, "%d\n", getpid());
+            fclose(pf);
+        }
+
+        /* Redirect stdout/stderr to log file, close stdin */
+        FILE* lf = fopen(logPath, "a");
+        if (lf != NULL) {
+            dup2(fileno(lf), STDOUT_FILENO);
+            dup2(fileno(lf), STDERR_FILENO);
+            fclose(lf);
+        }
+        close(STDIN_FILENO);
+
+        /* Re-apply unbuffered mode after fd swap and write startup marker */
+        setvbuf(stdout, NULL, _IONBF, 0);
+        setvbuf(stderr, NULL, _IONBF, 0);
+        info_printf("Agent started (PID %d)" NEWLINE, getpid());
+    }
+
+    globalDevice = nabto_device_new();
+    if (globalDevice == NULL) {
+        printf("Failed to create Nabto device" NEWLINE);
+        tmuxremote_deinit(&app);
+        return false;
+    }
+    app.device = globalDevice;
 
     logging_init(app.device, &app.logger, args->logLevel);
 
@@ -408,56 +461,6 @@ bool run_agent(const struct args* args)
     /* Initialize stream listeners */
     tmuxremote_stream_listener_init(&app.streamListener, app.device, &app);
     tmuxremote_control_stream_listener_init(&app.controlStreamListener, app.device, &app);
-
-    if (args->background) {
-        char pidPath[512];
-        char logPath[512];
-        snprintf(pidPath, sizeof(pidPath), "%s/tmux-remote-agent.pid", app.homeDir);
-        snprintf(logPath, sizeof(logPath), "%s/agent.log", app.homeDir);
-
-        fflush(stdout);
-        fflush(stderr);
-
-        pid_t pid = fork();
-        if (pid < 0) {
-            printf("Failed to fork: %s" NEWLINE, strerror(errno));
-            device_config_deinit(&deviceConfig);
-            tmuxremote_deinit(&app);
-            nabto_device_free(globalDevice);
-            globalDevice = NULL;
-            return false;
-        } else if (pid > 0) {
-            /* Parent: print info and exit */
-            info_printf("Backgrounding (PID %d)" NEWLINE, pid);
-            info_printf("  PID file: %s" NEWLINE, pidPath);
-            info_printf("  Log file: %s" NEWLINE, logPath);
-            _exit(0);
-        }
-
-        /* Child continues as daemon */
-        setsid();
-
-        /* Write PID file */
-        FILE* pf = fopen(pidPath, "w");
-        if (pf != NULL) {
-            fprintf(pf, "%d\n", getpid());
-            fclose(pf);
-        }
-
-        /* Redirect stdout/stderr to log file, close stdin */
-        FILE* lf = fopen(logPath, "a");
-        if (lf != NULL) {
-            dup2(fileno(lf), STDOUT_FILENO);
-            dup2(fileno(lf), STDERR_FILENO);
-            fclose(lf);
-        }
-        close(STDIN_FILENO);
-
-        /* Re-apply unbuffered mode after fd swap and write startup marker */
-        setvbuf(stdout, NULL, _IONBF, 0);
-        setvbuf(stderr, NULL, _IONBF, 0);
-        info_printf("Agent started (PID %d)" NEWLINE, getpid());
-    }
 
     /* Print banner (goes to log file when daemonized) */
     char* deviceFingerprint = NULL;
