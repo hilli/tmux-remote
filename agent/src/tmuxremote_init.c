@@ -14,12 +14,32 @@
 
 #include <nabto/nabto_device.h>
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #define NEWLINE "\n"
+
+/* Matches Nabto IAM username rules: lowercase a-z, digits, underscore,
+   dot, hyphen. Empty string not allowed. */
+static bool validate_username(const char* username)
+{
+    if (username == NULL || username[0] == '\0') {
+        return false;
+    }
+    for (size_t i = 0; username[i] != '\0'; i++) {
+        char c = username[i];
+        if ((c < 'a' || c > 'z') &&
+            (c < '0' || c > '9') &&
+            c != '_' && c != '.' && c != '-')
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 static bool parse_key_storage_target(const char* targetStorage,
                                      bool* outUseKeychain)
@@ -269,6 +289,13 @@ bool tmuxremote_do_demo_init(const char* homeDir, const char* productId,
 
 bool tmuxremote_do_add_user(const char* homeDir, const char* username)
 {
+    if (!validate_username(username)) {
+        printf("Invalid username '%s'." NEWLINE, username ? username : "");
+        printf("Usernames must contain only lowercase letters, digits, "
+               "underscore, dot, or hyphen." NEWLINE);
+        return false;
+    }
+
     struct nm_fs fsImpl = nm_fs_posix_get_impl();
     char buffer[512];
 
@@ -338,6 +365,15 @@ bool tmuxremote_do_add_user(const char* homeDir, const char* username)
 
     /* Add new user */
     struct nm_iam_user* user = nm_iam_state_user_new(username);
+    if (user == NULL) {
+        printf("Failed to create user (invalid username)." NEWLINE);
+        nabto_device_free(device);
+        nm_iam_state_free(state);
+        device_config_deinit(&dc);
+        free(iamStateFile);
+        free(deviceConfigFile);
+        return false;
+    }
     nm_iam_state_user_set_role(user, "Owner");
     char* pwd = random_password(12);
     nm_iam_state_user_set_password(user, pwd);

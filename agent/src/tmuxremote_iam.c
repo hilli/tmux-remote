@@ -218,6 +218,11 @@ void tmuxremote_iam_create_default_state(NabtoDevice* device, struct nm_fs* file
 
     /* Create the initial user with invite pairing credentials */
     struct nm_iam_user* user = nm_iam_state_user_new(username);
+    if (user == NULL) {
+        printf("Failed to create user '%s' (invalid username)." NEWLINE, username);
+        nm_iam_state_free(state);
+        return;
+    }
     nm_iam_state_user_set_role(user, "Owner");
     char* pwd = random_password(12);
     nm_iam_state_user_set_password(user, pwd);
