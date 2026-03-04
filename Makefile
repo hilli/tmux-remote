@@ -217,7 +217,7 @@ ios-release:
 		exit 1; \
 	fi && \
 	mkdir -p $(IOS_BUILD) && \
-	printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>method</key>\n\t<string>ad-hoc</string>\n\t<key>teamID</key>\n\t<string>%s</string>\n</dict>\n</plist>\n' "$$TEAM_ID" > $(IOS_BUILD)/ExportOptions.plist
+	printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>method</key>\n\t<string>release-testing</string>\n\t<key>teamID</key>\n\t<string>%s</string>\n</dict>\n</plist>\n' "$$TEAM_ID" > $(IOS_BUILD)/ExportOptions.plist
 	xcodebuild archive \
 		-workspace $(IOS_WORKSPACE) \
 		-scheme $(IOS_SCHEME) \
@@ -267,7 +267,7 @@ help:
 	@echo "  make ios-setup TEAM=ID        Set Xcode development team (one-time)"
 	@echo "  make ios-init                 Generate project and install pods"
 	@echo "  make ios-build                Build iOS app (debug, simulator)"
-	@echo "  make ios-release              Archive and export ad-hoc IPA"
+	@echo "  make ios-release              Archive and export IPA (release-testing)"
 	@echo "  make ios-clean                Remove iOS build artifacts"
 	@echo ""
 	@echo "Clean:"
