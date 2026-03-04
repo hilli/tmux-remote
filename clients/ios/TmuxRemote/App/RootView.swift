@@ -8,10 +8,19 @@ struct RootView: View {
 
     init(appState: AppState) {
         self.appState = appState
-        self._destination = State(initialValue: resolveLaunchDestination(
+        let dest = resolveLaunchDestination(
             devices: appState.bookmarkStore.devices,
             lastDeviceId: appState.bookmarkStore.lastDeviceId
-        ))
+        )
+        self._destination = State(initialValue: dest)
+        switch dest {
+        case .resumeSession(let bookmark, let session):
+            AppLog.log("RootView: launch destination = resumeSession(device=%@, session=%@)", bookmark.deviceId, session)
+        case .deviceList:
+            AppLog.log("RootView: launch destination = deviceList (lastDeviceId=%@, deviceCount=%d)",
+                       appState.bookmarkStore.lastDeviceId ?? "nil",
+                       appState.bookmarkStore.devices.count)
+        }
     }
 
     var body: some View {

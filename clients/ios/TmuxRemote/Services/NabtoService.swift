@@ -71,8 +71,10 @@ class NabtoService {
     // MARK: - Connection
 
     func connect(bookmark: DeviceBookmark) async throws {
+        AppLog.log("NabtoService.connect: device=%@", bookmark.deviceId)
         currentDeviceId = bookmark.deviceId
         _ = try await connectionManager.connection(for: bookmark)
+        AppLog.log("NabtoService.connect: success for device=%@", bookmark.deviceId)
     }
 
     /// Disconnect terminal resources for the current device.
@@ -186,12 +188,15 @@ class NabtoService {
     }
 
     func attach(bookmark: DeviceBookmark, session: String, cols: Int, rows: Int) async throws {
+        AppLog.log("NabtoService.attach: session=%@ cols=%d rows=%d", session, cols, rows)
         let conn = try await connectionManager.connection(for: bookmark)
 
         let coap = try conn.createCoapRequest(method: "POST", path: "/terminal/attach")
         let payload = CBORHelpers.encodeAttach(session: session, cols: cols, rows: rows)
         try coap.setRequestPayload(contentFormat: ContentFormat.APPLICATION_CBOR.rawValue, data: payload)
+        AppLog.log("NabtoService.attach: executing CoAP...")
         let response = try await coap.executeAsync()
+        AppLog.log("NabtoService.attach: CoAP response status=%d", response.status)
 
         guard response.status == 201 else {
             if response.status == 404 {
@@ -237,10 +242,13 @@ class NabtoService {
     // MARK: - Stream
 
     func openStream(bookmark: DeviceBookmark) async throws {
+        AppLog.log("NabtoService.openStream: creating stream...")
         let conn = try await connectionManager.connection(for: bookmark)
 
         let s = try conn.createStream()
+        AppLog.log("NabtoService.openStream: stream created, opening port 1...")
         try await s.openAsync(streamPort: 1)
+        AppLog.log("NabtoService.openStream: stream open, starting read loop")
         self.stream = s
 
         startReadLoop()

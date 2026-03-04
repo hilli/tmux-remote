@@ -89,12 +89,17 @@ class ConnectionManager {
         let deviceId = bookmark.deviceId
 
         if let existing = connections[deviceId] {
+            AppLog.log("ConnectionManager: reusing cached connection for %@", deviceId)
             return existing
         }
 
         if let pending = pendingConnects[deviceId] {
+            AppLog.log("ConnectionManager: awaiting pending connection for %@", deviceId)
             return try await pending.task.value
         }
+
+        AppLog.log("ConnectionManager: creating new connection for %@ (product=%@, sct=%@)",
+                    deviceId, bookmark.productId, String(bookmark.sct.prefix(8)) + "...")
 
         let pendingId = UUID()
         let task = Task<Connection, Error> { [weak self] in
@@ -103,12 +108,45 @@ class ConnectionManager {
             }
 
             self.deviceStates[deviceId] = .connecting
-            let privateKey = try self.loadOrCreatePrivateKey()
-            let conn = try self.client.createConnection()
-            try conn.setPrivateKey(key: privateKey)
-            try conn.setProductId(id: bookmark.productId)
-            try conn.setDeviceId(id: bookmark.deviceId)
-            try conn.setServerConnectToken(sct: bookmark.sct)
+
+            AppLog.log("ConnectionManager: loading private key...")
+            let privateKey: String
+            do {
+                privateKey = try self.loadOrCreatePrivateKey()
+                AppLog.log("ConnectionManager: private key loaded (%d chars)", privateKey.count)
+            } catch {
+                AppLog.log("ConnectionManager: private key failed: %@ (type: %@)",
+                           String(describing: error), String(describing: type(of: error)))
+                throw error
+            }
+
+            AppLog.log("ConnectionManager: creating Connection object...")
+            let conn: Connection
+            do {
+                conn = try self.client.createConnection()
+                AppLog.log("ConnectionManager: Connection object created")
+            } catch {
+                AppLog.log("ConnectionManager: createConnection() failed: %@ (type: %@)",
+                           String(describing: error), String(describing: type(of: error)))
+                throw error
+            }
+
+            do {
+                AppLog.log("ConnectionManager: setting private key...")
+                try conn.setPrivateKey(key: privateKey)
+                AppLog.log("ConnectionManager: setting product ID: %@", bookmark.productId)
+                try conn.setProductId(id: bookmark.productId)
+                AppLog.log("ConnectionManager: setting device ID: %@", bookmark.deviceId)
+                try conn.setDeviceId(id: bookmark.deviceId)
+                AppLog.log("ConnectionManager: setting SCT...")
+                try conn.setServerConnectToken(sct: bookmark.sct)
+                AppLog.log("ConnectionManager: all properties set, calling connectAsync...")
+            } catch {
+                AppLog.log("ConnectionManager: setProperty failed: %@ (type: %@)",
+                           String(describing: error), String(describing: type(of: error)))
+                throw error
+            }
+
             try await withTaskCancellationHandler {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     group.addTask {
@@ -120,13 +158,22 @@ class ConnectionManager {
                         throw NabtoError.connectionFailed("Connection timed out")
                     }
                     // Wait for the first to complete; cancel the other
-                    try await group.next()
+                    do {
+                        try await group.next()
+                    } catch {
+                        AppLog.log("ConnectionManager: connectAsync failed: %@ (type: %@)",
+                                   String(describing: error), String(describing: type(of: error)))
+                        throw error
+                    }
                     group.cancelAll()
                 }
             } onCancel: {
+                AppLog.log("ConnectionManager: connection cancelled for %@", deviceId)
                 conn.stop()
             }
             try Task.checkCancellation()
+
+            AppLog.log("ConnectionManager: connectAsync succeeded for %@", deviceId)
 
             guard self.pendingConnects[deviceId]?.id == pendingId else {
                 conn.stop()
@@ -152,6 +199,8 @@ class ConnectionManager {
             self.pendingConnects.removeValue(forKey: deviceId)
             self.deviceStates[deviceId] = .connected
 
+            AppLog.log("ConnectionManager: connection established and cached for %@", deviceId)
+
             // Open control stream for live session updates (best-effort)
             self.openControlStream(deviceId: deviceId, connection: conn)
 
@@ -163,6 +212,8 @@ class ConnectionManager {
         do {
             return try await task.value
         } catch {
+            AppLog.log("ConnectionManager: connection(for:) failed for %@: %@ (type: %@)",
+                       deviceId, String(describing: error), String(describing: type(of: error)))
             if pendingConnects[deviceId]?.id == pendingId {
                 pendingConnects.removeValue(forKey: deviceId)
                 if connections[deviceId] == nil {
@@ -215,6 +266,7 @@ class ConnectionManager {
 
     /// Warm the connection cache on app start.
     func warmCache(bookmarks: [DeviceBookmark]) {
+        AppLog.log("ConnectionManager.warmCache: %d bookmarks", bookmarks.count)
         for bookmark in bookmarks {
             Task {
                 _ = try? await connection(for: bookmark)

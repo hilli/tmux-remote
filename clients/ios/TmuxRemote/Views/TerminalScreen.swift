@@ -1,4 +1,5 @@
 import SwiftUI
+import NabtoEdgeClient
 
 struct TerminalScreen: View {
     let bookmark: DeviceBookmark
@@ -298,23 +299,37 @@ struct TerminalScreen: View {
 
     private func connectAndAttach() async {
         guard !isDismissing else { return }
+        AppLog.log("connectAndAttach: starting for device=%@ session=%@", bookmark.deviceId, sessionName)
         do {
+            AppLog.log("connectAndAttach: calling connect...")
             try await nabtoService.connect(bookmark: bookmark)
+            AppLog.log("connectAndAttach: connect succeeded")
             try Task.checkCancellation()
             guard !isDismissing else { throw CancellationError() }
+            AppLog.log("connectAndAttach: calling attach...")
             try await nabtoService.attach(bookmark: bookmark, session: sessionName, cols: currentCols, rows: currentRows)
+            AppLog.log("connectAndAttach: attach succeeded")
             try Task.checkCancellation()
             guard !isDismissing else { throw CancellationError() }
+            AppLog.log("connectAndAttach: calling openStream...")
             try await nabtoService.openStream(bookmark: bookmark)
+            AppLog.log("connectAndAttach: openStream succeeded")
             try Task.checkCancellation()
             guard !isDismissing else { throw CancellationError() }
             bookmarkStore.updateLastSession(deviceId: bookmark.deviceId, session: sessionName)
+            AppLog.log("connectAndAttach: fully connected")
         } catch is CancellationError {
+            AppLog.log("connectAndAttach: cancelled")
             return
         } catch let error as NabtoError {
+            AppLog.log("connectAndAttach: NabtoError: %@", error.localizedDescription)
             switch error {
             case .sessionNotFound:
                 bookmarkStore.clearLastSession(deviceId: bookmark.deviceId)
+                dismissToDevices()
+                return
+            case .connectionFailed:
+                AppLog.log("connectAndAttach: connection failed, returning to device list")
                 dismissToDevices()
                 return
             default:
@@ -322,9 +337,34 @@ struct TerminalScreen: View {
                 showError = true
             }
         } catch {
-            errorMessage = error.localizedDescription
+            AppLog.log("connectAndAttach: raw error: %@ (type: %@, localizedDescription: %@)",
+                       String(describing: error),
+                       String(describing: type(of: error)),
+                       error.localizedDescription)
+            if isDeviceOfflineError(error) {
+                AppLog.log("connectAndAttach: device offline, returning to device list")
+                dismissToDevices()
+                return
+            }
+            errorMessage = friendlyMessage(for: error)
             showError = true
         }
+    }
+
+    private func isDeviceOfflineError(_ error: Error) -> Bool {
+        let desc = String(describing: error)
+        return desc.contains("NO_CHANNELS") || desc.contains("NOT_ATTACHED")
+    }
+
+    private func friendlyMessage(for error: Error) -> String {
+        let desc = String(describing: error)
+        if desc.contains("TIMEOUT") || desc.contains("timed out") {
+            return "Connection timed out."
+        }
+        if desc.contains("TOKEN_REJECTED") {
+            return "Server connect token was rejected. The agent may have been re-provisioned."
+        }
+        return desc
     }
 
     @ViewBuilder
