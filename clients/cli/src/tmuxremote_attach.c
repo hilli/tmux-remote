@@ -18,6 +18,8 @@
 #include <unistd.h>
 
 #define READ_BUFFER_SIZE 4096
+#define TMUXREMOTE_STREAM_WAIT_SLICE_MS 250
+#define TMUXREMOTE_STREAM_WRITE_TIMEOUT_MS 15000
 
 struct reader_thread_ctx {
     NabtoClient* client;
@@ -27,6 +29,11 @@ struct reader_thread_ctx {
 
 static volatile sig_atomic_t sigwinch_received = 0;
 static bool write_all_fd(int fd, const uint8_t* data, size_t len);
+static NabtoClientError wait_stream_future(NabtoClientStream* stream,
+                                           NabtoClientFuture* future,
+                                           atomic_bool* done,
+                                           const char* operation,
+                                           bool timeoutEnabled);
 
 static void sigwinch_handler(int sig)
 {
@@ -43,7 +50,11 @@ static void* stream_reader_thread(void* arg)
     while (!atomic_load(ctx->done)) {
         NabtoClientFuture* fut = nabto_client_future_new(ctx->client);
         nabto_client_stream_read_some(ctx->stream, fut, buf, sizeof(buf), &readLen);
-        NabtoClientError ec = nabto_client_future_wait(fut);
+        NabtoClientError ec = wait_stream_future(ctx->stream,
+                                                 fut,
+                                                 ctx->done,
+                                                 "read",
+                                                 false);
         nabto_client_future_free(fut);
 
         if (ec == NABTO_CLIENT_EC_EOF || ec != NABTO_CLIENT_EC_OK) {
@@ -76,6 +87,45 @@ static bool write_all_fd(int fd, const uint8_t* data, size_t len)
         return false;
     }
     return true;
+}
+
+static NabtoClientError wait_stream_future(NabtoClientStream* stream,
+                                           NabtoClientFuture* future,
+                                           atomic_bool* done,
+                                           const char* operation,
+                                           bool timeoutEnabled)
+{
+    int waitedMs = 0;
+    bool aborted = false;
+
+    while (true) {
+        NabtoClientError ec =
+            nabto_client_future_timed_wait(future, TMUXREMOTE_STREAM_WAIT_SLICE_MS);
+        if (ec != NABTO_CLIENT_EC_FUTURE_NOT_RESOLVED) {
+            return ec;
+        }
+
+        if (done != NULL && atomic_load(done) && !aborted) {
+            nabto_client_stream_abort(stream);
+            aborted = true;
+            timeoutEnabled = false;
+            continue;
+        }
+
+        if (timeoutEnabled) {
+            waitedMs += TMUXREMOTE_STREAM_WAIT_SLICE_MS;
+            if (waitedMs >= TMUXREMOTE_STREAM_WRITE_TIMEOUT_MS) {
+                tmuxremote_log("Stream %s timed out after %d ms, aborting stream",
+                               operation, TMUXREMOTE_STREAM_WRITE_TIMEOUT_MS);
+                if (done != NULL) {
+                    atomic_store(done, true);
+                }
+                nabto_client_stream_abort(stream);
+                aborted = true;
+                timeoutEnabled = false;
+            }
+        }
+    }
 }
 
 /* Shared stream relay loop: open stream, set raw mode, relay stdin<->stream.
@@ -169,7 +219,11 @@ static int run_stream_relay(NabtoClientConnection* conn, NabtoClient* client,
 
             future = nabto_client_future_new(client);
             nabto_client_stream_write(stream, future, inputBuf, (size_t)n);
-            ec = nabto_client_future_wait(future);
+            ec = wait_stream_future(stream,
+                                    future,
+                                    &done,
+                                    "write",
+                                    true);
             nabto_client_future_free(future);
 
             if (ec != NABTO_CLIENT_EC_OK) {

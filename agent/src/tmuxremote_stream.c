@@ -23,6 +23,8 @@
 #endif
 
 #define NEWLINE "\n"
+#define TMUXREMOTE_STREAM_WAIT_SLICE_MS 250
+#define TMUXREMOTE_STREAM_WRITE_TIMEOUT_MS 15000
 
 static void start_listen(struct tmuxremote_stream_listener* sl);
 static void stream_callback(NabtoDeviceFuture* future,
@@ -40,6 +42,10 @@ static void* stream_setup_thread(void* arg);
 static void* pty_reader_thread(void* arg);
 static void* stream_reader_thread(void* arg);
 static bool write_all_fd(int fd, const uint8_t* data, size_t len);
+static NabtoDeviceError wait_stream_future(struct tmuxremote_active_stream* as,
+                                           NabtoDeviceFuture* future,
+                                           const char* operation,
+                                           bool timeoutEnabled);
 
 static void start_stream_close_once(struct tmuxremote_active_stream* as)
 {
@@ -454,7 +460,10 @@ static void* stream_reader_thread(void* arg)
         }
 
         nabto_device_stream_read_some(as->stream, readFuture, buf, sizeof(buf), &readLength);
-        NabtoDeviceError ec = nabto_device_future_wait(readFuture);
+        NabtoDeviceError ec = wait_stream_future(as,
+                                                 readFuture,
+                                                 "read",
+                                                 false);
         nabto_device_future_free(readFuture);
 
         if (ec != NABTO_DEVICE_EC_OK) {
@@ -491,6 +500,42 @@ static bool write_all_fd(int fd, const uint8_t* data, size_t len)
     return true;
 }
 
+static NabtoDeviceError wait_stream_future(struct tmuxremote_active_stream* as,
+                                           NabtoDeviceFuture* future,
+                                           const char* operation,
+                                           bool timeoutEnabled)
+{
+    int waitedMs = 0;
+    bool aborted = false;
+
+    while (true) {
+        NabtoDeviceError ec =
+            nabto_device_future_timed_wait(future, TMUXREMOTE_STREAM_WAIT_SLICE_MS);
+        if (ec != NABTO_DEVICE_EC_FUTURE_NOT_RESOLVED) {
+            return ec;
+        }
+
+        if (atomic_load(&as->closing) && !aborted) {
+            nabto_device_stream_abort(as->stream);
+            aborted = true;
+            timeoutEnabled = false;
+            continue;
+        }
+
+        if (timeoutEnabled) {
+            waitedMs += TMUXREMOTE_STREAM_WAIT_SLICE_MS;
+            if (waitedMs >= TMUXREMOTE_STREAM_WRITE_TIMEOUT_MS) {
+                printf("Stream %s timed out after %d ms, aborting stream" NEWLINE,
+                       operation, TMUXREMOTE_STREAM_WRITE_TIMEOUT_MS);
+                atomic_store(&as->closing, true);
+                nabto_device_stream_abort(as->stream);
+                aborted = true;
+                timeoutEnabled = false;
+            }
+        }
+    }
+}
+
 static void* pty_reader_thread(void* arg)
 {
     struct tmuxremote_active_stream* as = arg;
@@ -518,7 +563,10 @@ static void* pty_reader_thread(void* arg)
             break;
         }
         nabto_device_stream_write(as->stream, writeFuture, buf, (size_t)n);
-        NabtoDeviceError ec = nabto_device_future_wait(writeFuture);
+        NabtoDeviceError ec = wait_stream_future(as,
+                                                 writeFuture,
+                                                 "write",
+                                                 true);
         nabto_device_future_free(writeFuture);
 
         if (ec != NABTO_DEVICE_EC_OK) {
