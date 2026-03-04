@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os: linux
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+          - runner: macos-latest
+            os: macos
+            arch: arm64
+
+    runs-on: ${{ matrix.runner }}
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config libpcre2-dev patchelf
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew install cmake ninja pcre2
+
+      - name: Build agent
+        run: |
+          cd agent
+          cmake -B _build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+          cmake --build _build
+
+      - name: Build CLI client
+        run: |
+          cd clients/cli
+          cmake -B _build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+          cmake --build _build
+
+      - name: Package release archive
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ARCHIVE_NAME="tmux-remote-${TAG}-${{ matrix.os }}-${{ matrix.arch }}"
+          mkdir -p "${ARCHIVE_NAME}"
+
+          cp agent/_build/tmux-remote-agent "${ARCHIVE_NAME}/"
+          cp clients/cli/_build/tmux-remote "${ARCHIVE_NAME}/"
+          cp README.md "${ARCHIVE_NAME}/"
+
+          # Bundle the Nabto Client SDK shared library
+          SDK_DIR="clients/cli/_build/_deps/nabto_client_sdk-src/lib"
+          if [ "${{ matrix.os }}" = "macos" ]; then
+            cp "${SDK_DIR}/macos-universal/libnabto_client.dylib" "${ARCHIVE_NAME}/"
+          elif [ "${{ matrix.arch }}" = "arm64" ]; then
+            cp "${SDK_DIR}/linux-aarch64/libnabto_client.so" "${ARCHIVE_NAME}/"
+          else
+            cp "${SDK_DIR}/linux-x86_64/libnabto_client.so" "${ARCHIVE_NAME}/"
+          fi
+
+          # Fix RPATH so the CLI binary finds libnabto_client next to itself
+          if [ "${{ matrix.os }}" = "linux" ]; then
+            patchelf --set-rpath '$ORIGIN' "${ARCHIVE_NAME}/tmux-remote"
+          elif [ "${{ matrix.os }}" = "macos" ]; then
+            install_name_tool -add_rpath @loader_path "${ARCHIVE_NAME}/tmux-remote" 2>/dev/null || true
+          fi
+
+          tar czf "${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ env.ARCHIVE_NAME }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Create Release
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*.tar.gz
